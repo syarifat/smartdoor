@@ -284,17 +284,28 @@ void verifikasiPIN(String pin) {
 
 // Fungsi Trigger untuk menyuruh ESP32-CAM memfoto pelaku
 void triggerKamera() {
-  displayMessage("PERINGATAN!", "MENGAMBIL FOTO...");
-  digitalWrite(LED_Y_PIN, HIGH); // Nyalakan LED Kuning indikator proses kamera
+  // STEP 1: Tampilkan di LCD bahwa kita akan trigger kamera
+  displayMessage("TRIGGER KAMERA", "Kirim sinyal...");
+  Serial.println("[CAM] Mengirim sinyal trigger ke ESP32-CAM...");
   
-  // Kirim pulsa HIGH ke ESP32-CAM selama 500ms
+  digitalWrite(LED_Y_PIN, HIGH); // LED Kuning menyala = sedang trigger
+
+  // STEP 2: Kirim pulsa HIGH selama 2 detik ke ESP32-CAM
   digitalWrite(CAM_TRIG_PIN, HIGH);
-  delay(500);
+  displayMessage("SINYAL DIKIRIM", "GPIO14 = HIGH");
+  delay(2000); // 2 detik penuh agar pasti tertangkap oleh ESP32-CAM
+
   digitalWrite(CAM_TRIG_PIN, LOW);
-  
-  delay(3000); // Beri waktu ESP32-CAM memproses upload foto
+  displayMessage("SINYAL SELESAI", "GPIO14 = LOW");
+  Serial.println("[CAM] Sinyal trigger selesai dikirim (2 detik).");
+
+  // STEP 3: Tunggu ESP32-CAM selesai memproses (ambil foto + upload)
+  displayMessage("MENUNGGU CAM", "Upload foto...");
+  delay(10000); // Tunggu 10 detik untuk ESP32-CAM selesai upload
+
   digitalWrite(LED_Y_PIN, LOW);
-  displayMessage("PINTU KEMBALI", "Siap Digunakan");
+  displayMessage("CAM SELESAI", "Siap Digunakan");
+  Serial.println("[CAM] Proses trigger kamera selesai.");
 }
 
 // ==========================================

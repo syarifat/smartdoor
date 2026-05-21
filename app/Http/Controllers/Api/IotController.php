@@ -115,6 +115,9 @@ class IotController extends Controller
                     'sudah_dilihat'    => false,
                     'waktu'            => now()
                 ]);
+                // Reset counter ke 0 agar percobaan 4,5 tidak memicu foto
+                // Foto baru hanya dipicu setiap kelipatan 3 kegagalan
+                Cache::put($cacheKey, 0, now()->addMinutes(5));
             }
         } else {
             // Reset attempts on success
@@ -214,6 +217,9 @@ class IotController extends Controller
                     'sudah_dilihat'    => false,
                     'waktu'            => now()
                 ]);
+                // Reset counter ke 0 agar percobaan 4,5 tidak memicu foto
+                // Foto baru hanya dipicu setiap kelipatan 3 kegagalan
+                Cache::put($cacheKey, 0, now()->addMinutes(5));
             }
 
             return response()->json([
