@@ -201,7 +201,7 @@ void verifikasiRFID(String uid) {
   serializeJson(doc, jsonBody);
   
   int httpCode = http.POST(jsonBody);
-  if (httpCode == HTTP_CODE_OK) {
+  if (httpCode == HTTP_CODE_OK || httpCode == 403) {
     String payload = http.getString();
     DynamicJsonDocument resp(512);
     deserializeJson(resp, payload);
@@ -211,8 +211,13 @@ void verifikasiRFID(String uid) {
       pinSalahCount = 0; // Reset percobaan gagal
       aksesDiterima("ID: " + uid);
     } else {
+      bool ambilFoto = resp["ambil_foto"].as<bool>();
       displayMessage("AKSES DITOLAK", "Kartu Tidak Cocok");
       feedbackGagal();
+      
+      if (ambilFoto) {
+        triggerKamera();
+      }
     }
   } else {
     Serial.printf("RFID POST Gagal, Code: %d\n", httpCode);

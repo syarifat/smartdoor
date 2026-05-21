@@ -98,9 +98,33 @@ class IotController extends Controller
             'metode_akses'=> 'rfid'
         ]);
 
+        $ambilFoto = false;
+        if ($statusAkses !== 'berhasil') {
+            $kamarId = $kamar->id;
+            $cacheKey = "rfid_attempts_{$kamarId}";
+            $attempts = Cache::get($cacheKey, 0);
+            $attempts++;
+            Cache::put($cacheKey, $attempts, now()->addMinutes(5));
+
+            if ($attempts >= 3) {
+                $ambilFoto = true;
+                PercobaanGagal::create([
+                    'kamar_id'         => $kamarId,
+                    'rfid_uid'         => $request->uid,
+                    'jumlah_percobaan' => $attempts,
+                    'sudah_dilihat'    => false,
+                    'waktu'            => now()
+                ]);
+            }
+        } else {
+            // Reset attempts on success
+            Cache::forget("rfid_attempts_{$kamar->id}");
+        }
+
         return response()->json([
             'success' => $statusAkses === 'berhasil',
-            'message' => $keterangan
+            'message' => $keterangan,
+            'ambil_foto' => $ambilFoto
         ], $statusAkses === 'berhasil' ? 200 : 403);
     }
 

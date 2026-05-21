@@ -152,7 +152,7 @@ void ambilDanKirimFoto() {
 // ==========================================
 void setup() {
   // Matikan Brownout Detector agar ESP32-CAM tidak restart/crash saat memotret (butuh arus besar)
-  WRITE_PERI_REG(RTC_CNTL_BROWNOUT_REG, 0);
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   
   Serial.begin(115200);
   Serial.println("Menginisialisasi ESP32-CAM...");
