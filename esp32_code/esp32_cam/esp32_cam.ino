@@ -41,6 +41,7 @@ const int kamarId = 1;
 #define VSYNC_GPIO_NUM    25
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
+#define FLASH_LED_PIN      4
 
 // ==========================================
 // 4. LOGIKA PENGAMBILAN & PENGIRIMAN FOTO (HTTPS MULTIPART)
@@ -48,8 +49,16 @@ const int kamarId = 1;
 void ambilDanKirimFoto() {
   Serial.println("\n--- Memulai Proses Ambil & Kirim Foto ---");
   
+  // Nyalakan Flash LED (GPIO 4)
+  digitalWrite(FLASH_LED_PIN, HIGH);
+  delay(150); // Biarkan menyala sebentar agar gambar tidak terlalu gelap
+
   // Ambil buffer gambar dari sensor kamera
   camera_fb_t * fb = esp_camera_fb_get();
+  
+  // Matikan Flash LED
+  digitalWrite(FLASH_LED_PIN, LOW);
+
   if (!fb) {
     Serial.println("Gagal mengambil foto dari kamera!");
     return;
@@ -159,6 +168,10 @@ void setup() {
 
   // Konfigurasi pin trigger dari ESP32 Utama
   pinMode(TRIGGER_PIN, INPUT); // PULLDOWN eksternal disarankan di hardware Anda
+
+  // Konfigurasi Flash LED
+  pinMode(FLASH_LED_PIN, OUTPUT);
+  digitalWrite(FLASH_LED_PIN, LOW);
 
   // Konfigurasi Sensor Kamera
   camera_config_t config;

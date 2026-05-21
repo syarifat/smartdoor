@@ -235,8 +235,6 @@ class IotController extends Controller
     {
         $request->validate([
             'kamar_id'          => 'required|exists:kamars,id',
-            'rfid_uid'          => 'required|string|max:50',
-            'jumlah_percobaan'  => 'required|integer|min:1',
             'foto'              => 'nullable|image|mimes:jpg,jpeg,png|max:5120',
         ]);
 
@@ -245,14 +243,25 @@ class IotController extends Controller
             $fotoPath = $request->file('foto')->store('snapshots', 'public');
         }
 
-        PercobaanGagal::create([
-            'kamar_id'         => $request->kamar_id,
-            'rfid_uid'         => $request->rfid_uid,
-            'jumlah_percobaan' => $request->jumlah_percobaan,
-            'foto_path'        => $fotoPath,
-            'sudah_dilihat'    => false,
-            'waktu'            => now(),
-        ]);
+        // Cari percobaan gagal terakhir untuk kamar ini dalam 2 menit terakhir (dibuat oleh ESP32 Utama)
+        $latest = PercobaanGagal::where('kamar_id', $request->kamar_id)
+            ->where('waktu', '>=', now()->subMinutes(2))
+            ->latest('waktu')
+            ->first();
+
+        if ($latest) {
+            $latest->update(['foto_path' => $fotoPath]);
+        } else {
+            // Fallback jika tidak ada record sebelumnya
+            PercobaanGagal::create([
+                'kamar_id'         => $request->kamar_id,
+                'rfid_uid'         => $request->rfid_uid ?? 'CAMERA_ONLY',
+                'jumlah_percobaan' => $request->jumlah_percobaan ?? 3,
+                'foto_path'        => $fotoPath,
+                'sudah_dilihat'    => false,
+                'waktu'            => now(),
+            ]);
+        }
 
         return response()->json([
             'success' => true,
