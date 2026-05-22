@@ -224,23 +224,39 @@ void ambilDanKirimFoto() {
     return;
   }
 
-  // Baca dan log respons
-  String responseLine = "";
+  // Baca status HTTP dari BARIS PERTAMA response
+  String httpStatus = client.readStringUntil('\n');
+  Serial.println("[SERVER STATUS] " + httpStatus);
+
+  // Baca sisa response body untuk log
+  String body = "";
   while (client.available()) {
-    responseLine = client.readStringUntil('\n');
-    if (responseLine.startsWith("HTTP/")) {
-      Serial.println("[SERVER RESP] " + responseLine);
+    String line = client.readStringUntil('\n');
+    if (line.startsWith("{") || line.startsWith("[")) {
+      body = line;
     }
   }
   client.stop();
+  Serial.println("[SERVER BODY] " + body);
 
-  // Cek status HTTP: baris pertama berisi kode
-  bool sukses = responseLine.indexOf("200") >= 0 || responseLine.indexOf("201") >= 0;
-  
-  if (sukses || true) { // Anggap sukses jika server merespons apapun
-    Serial.println("[OK] Upload selesai & server merespons!");
+  // Cek status HTTP: baris pertama "HTTP/1.1 200 OK"
+  bool sukses = httpStatus.indexOf(" 200 ") >= 0 || httpStatus.indexOf(" 201 ") >= 0;
+
+  if (sukses) {
+    Serial.println("[OK] Upload foto BERHASIL!");
     // Indikator SUKSES: Flash menyala panjang 1,5 detik
     flashPanjang(1500);
+  } else {
+    Serial.println("[ERROR] Server menolak upload! Status: " + httpStatus);
+    // Indikator GAGAL SERVER: Red + Flash bergantian 5x
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(RED_LED_PIN, LOW);
+      delay(100);
+      digitalWrite(RED_LED_PIN, HIGH);
+      digitalWrite(FLASH_LED_PIN, HIGH);
+      delay(100);
+      digitalWrite(FLASH_LED_PIN, LOW);
+    }
   }
 
   Serial.println("=== [SELESAI] Kamera siap kembali ===\n");

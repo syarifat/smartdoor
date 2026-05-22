@@ -52,8 +52,12 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 // Variabel Kontrol
 int pinSalahCount = 0;
-unsigned long lastPollTime = 0;
-const unsigned long pollInterval = 2000; // Polling status dari web setiap 2 detik (non-blocking)
+
+// Flag komunikasi antar core (Core 0: polling web, Core 1: keypad/RFID)
+volatile bool perintahBukaWeb = false;
+
+// Mutex untuk mencegah dua core pakai WiFi bersamaan
+SemaphoreHandle_t wifiMutex;
 
 // ==========================================
 // 3. FUNGSI LAYAR OLED & SOUND/LED FEEDBACK
@@ -66,6 +70,29 @@ void displayMessage(String line1, String line2 = "") {
   display.println(line1);
   display.setCursor(0, 35);
   display.println(line2);
+  display.display();
+}
+
+// Tampilan khusus input PIN: angka tampil polos + petunjuk tombol di bawah
+void displayPIN(String pinSoFar) {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+
+  // Baris 1: Label
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("MASUKKAN PIN:");
+
+  // Baris 2: Angka PIN besar dan jelas
+  display.setTextSize(2);
+  display.setCursor(0, 18);
+  display.println(pinSoFar.length() > 0 ? pinSoFar : "-");
+
+  // Baris 3: Petunjuk tombol (kecil di bawah)
+  display.setTextSize(1);
+  display.setCursor(0, 52);
+  display.println("# Enter  * Hapus");
+
   display.display();
 }
 
@@ -146,6 +173,7 @@ void cekPerintahWeb() {
 // Kirim Konfirmasi ke Server setelah mengeksekusi Perintah Buka Pintu
 void konfirmasiBukaPintuWeb() {
   if (WiFi.status() != WL_CONNECTED) return;
+  if (xSemaphoreTake(wifiMutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
   
   WiFiClientSecure client;
   client.setInsecure();
@@ -170,6 +198,7 @@ void konfirmasiBukaPintuWeb() {
     Serial.printf("[WEB] Gagal kirim konfirmasi. Code: %d\n", httpCode);
   }
   http.end();
+  xSemaphoreGive(wifiMutex);
 }
 
 // Kirim data RFID ke Server untuk Verifikasi
@@ -178,6 +207,13 @@ void verifikasiRFID(String uid) {
   
   if (WiFi.status() != WL_CONNECTED) {
     displayMessage("KONEKSI ERROR", "WiFi terputus!");
+    feedbackGagal();
+    return;
+  }
+
+  // Ambil giliran WiFi dari Core 0
+  if (xSemaphoreTake(wifiMutex, pdMS_TO_TICKS(8000)) != pdTRUE) {
+    displayMessage("AKSES DITOLAK", "WiFi sibuk!");
     feedbackGagal();
     return;
   }
@@ -201,20 +237,24 @@ void verifikasiRFID(String uid) {
   serializeJson(doc, jsonBody);
   
   int httpCode = http.POST(jsonBody);
+  bool ambilFoto = false;
   if (httpCode == HTTP_CODE_OK || httpCode == 403) {
     String payload = http.getString();
     DynamicJsonDocument resp(512);
     deserializeJson(resp, payload);
     
     bool success = resp["success"].as<bool>();
+    ambilFoto = resp["ambil_foto"].as<bool>();
+    
+    http.end();
+    xSemaphoreGive(wifiMutex); // Lepaskan WiFi SEBELUM trigger kamera
+
     if (success) {
-      pinSalahCount = 0; // Reset percobaan gagal
+      pinSalahCount = 0;
       aksesDiterima("ID: " + uid);
     } else {
-      bool ambilFoto = resp["ambil_foto"].as<bool>();
       displayMessage("AKSES DITOLAK", "Kartu Tidak Cocok");
       feedbackGagal();
-      
       if (ambilFoto) {
         triggerKamera();
       }
@@ -223,8 +263,9 @@ void verifikasiRFID(String uid) {
     Serial.printf("RFID POST Gagal, Code: %d\n", httpCode);
     displayMessage("AKSES DITOLAK", "Server Error: " + String(httpCode));
     feedbackGagal();
+    http.end();
+    xSemaphoreGive(wifiMutex);
   }
-  http.end();
 }
 
 // Kirim data PIN ke Server untuk Verifikasi
@@ -233,6 +274,13 @@ void verifikasiPIN(String pin) {
   
   if (WiFi.status() != WL_CONNECTED) {
     displayMessage("KONEKSI ERROR", "WiFi terputus!");
+    feedbackGagal();
+    return;
+  }
+
+  // Ambil giliran WiFi dari Core 0
+  if (xSemaphoreTake(wifiMutex, pdMS_TO_TICKS(8000)) != pdTRUE) {
+    displayMessage("ERROR SERVER", "WiFi sibuk!");
     feedbackGagal();
     return;
   }
@@ -255,21 +303,24 @@ void verifikasiPIN(String pin) {
   serializeJson(doc, jsonBody);
   
   int httpCode = http.POST(jsonBody);
-  if (httpCode == HTTP_CODE_OK || httpCode == 403) { // 403 adalah tanggapan standar brute force/pin salah
+  bool ambilFoto = false;
+  if (httpCode == HTTP_CODE_OK || httpCode == 403) {
     String payload = http.getString();
     DynamicJsonDocument resp(512);
     deserializeJson(resp, payload);
     
     bool bukaPintu = resp["buka_pintu"].as<bool>();
+    ambilFoto = resp["ambil_foto"].as<bool>();
+
+    http.end();
+    xSemaphoreGive(wifiMutex); // Lepaskan WiFi SEBELUM trigger kamera
+
     if (bukaPintu) {
-      pinSalahCount = 0; // Reset counter
+      pinSalahCount = 0;
       aksesDiterima("Selamat Datang!");
     } else {
-      // Cek apakah server menyuruh mengambil foto
-      bool ambilFoto = resp["ambil_foto"].as<bool>();
       displayMessage("PIN SALAH!", "Akses Ditolak");
       feedbackGagal();
-      
       if (ambilFoto) {
         triggerKamera();
       }
@@ -278,8 +329,9 @@ void verifikasiPIN(String pin) {
     Serial.printf("PIN POST Gagal, Code: %d\n", httpCode);
     displayMessage("ERROR SERVER", "Gagal verifikasi");
     feedbackGagal();
+    http.end();
+    xSemaphoreGive(wifiMutex);
   }
-  http.end();
 }
 
 // Fungsi Trigger untuk menyuruh ESP32-CAM memfoto pelaku
@@ -348,6 +400,50 @@ void setup() {
   }
   Serial.println("\nWiFi Terhubung!");
   displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
+
+  // Buat mutex WiFi agar Core 0 dan Core 1 tidak bentrok saat pakai WiFi
+  wifiMutex = xSemaphoreCreateMutex();
+
+  // Jalankan polling web di Core 0 (terpisah dari Core 1 yang menangani keypad/RFID)
+  // Ini memastikan HTTPS request tidak pernah memblokir input keypad
+  xTaskCreatePinnedToCore(
+    [](void* param) {
+      for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(3000)); // Poll setiap 3 detik
+        if (WiFi.status() != WL_CONNECTED) continue;
+
+        // Tunggu giliran pakai WiFi (maksimal 2 detik)
+        if (xSemaphoreTake(wifiMutex, pdMS_TO_TICKS(2000)) != pdTRUE) continue;
+
+        // Cek perintah dari web
+        WiFiClientSecure client;
+        client.setInsecure();
+        client.setTimeout(5);
+        HTTPClient http;
+        String url = serverUrl + "/status-pintu/" + String(kamarId);
+        http.begin(client, url);
+        http.addHeader("Accept", "application/json");
+        int code = http.GET();
+        if (code == HTTP_CODE_OK) {
+          String payload = http.getString();
+          DynamicJsonDocument doc(512);
+          deserializeJson(doc, payload);
+          String perintah = doc["perintah"].as<String>();
+          if (perintah == "buka") {
+            perintahBukaWeb = true;
+          }
+        }
+        http.end();
+        xSemaphoreGive(wifiMutex); // Lepaskan mutex
+      }
+    },
+    "TaskPollingWeb", // Nama task
+    8192,            // Stack size
+    NULL,            // Parameter
+    1,               // Prioritas
+    NULL,            // Task handle
+    0                // Jalankan di Core 0
+  );
 }
 
 void loop() {
@@ -367,10 +463,11 @@ void loop() {
     return;
   }
   
-  // 1. Polling Perintah Pintu dari Web secara non-blocking setiap 2 detik
-  if (millis() - lastPollTime >= pollInterval) {
-    lastPollTime = millis();
-    cekPerintahWeb();
+  // 1. Cek flag perintah buka pintu dari Web (dikirim oleh task Core 0)
+  if (perintahBukaWeb) {
+    perintahBukaWeb = false; // Reset flag
+    konfirmasiBukaPintuWeb();
+    aksesDiterima("Buka Pintu via Web");
   }
   
   // 2. Baca Scan Kartu RFID
@@ -405,32 +502,38 @@ void loop() {
     if (key >= '0' && key <= '9') {
       if (inputPIN.length() < 6) {
         inputPIN += key;
-        
-        // Buat masking tanda bintang (*) untuk keamanan di OLED
-        String mask = "";
-        for (int i = 0; i < inputPIN.length(); i++) {
-          mask += "*";
-        }
-        displayMessage("MASUKKAN PIN:", mask);
+        // Tampilkan angka langsung tanpa sensor, dengan petunjuk tombol
+        displayPIN(inputPIN);
       }
     } 
     else if (key == '*') {
-      // Tombol Batal
-      inputPIN = "";
-      displayMessage("PIN DIHAPUS", "Silakan PIN lagi");
-      delay(1000);
-      displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
+      // Tombol Hapus: hapus 1 karakter terakhir dulu, baru semua jika sudah kosong
+      if (inputPIN.length() > 0) {
+        inputPIN.remove(inputPIN.length() - 1); // Hapus 1 digit terakhir
+        if (inputPIN.length() == 0) {
+          displayMessage("PIN DIHAPUS", "Ketik ulang PIN");
+          delay(800);
+          displayPIN("");
+        } else {
+          displayPIN(inputPIN); // Tampilkan sisa digit
+        }
+      } else {
+        // Sudah kosong, kembali ke layar utama
+        displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
+      }
     } 
     else if (key == '#') {
-      // Tombol Enter
+      // Tombol Enter/Kirim
       if (inputPIN.length() == 6) {
         verifikasiPIN(inputPIN);
+        inputPIN = ""; // Reset setelah verifikasi
+      } else if (inputPIN.length() == 0) {
+        // Tidak ada input, abaikan saja
       } else {
-        displayMessage("PIN HARUS 6 DIGIT", "Silakan coba lagi");
+        displayMessage("KURANG DIGIT!", String(6 - inputPIN.length()) + " lagi");
         feedbackGagal();
-        inputPIN = "";
         delay(1500);
-        displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
+        displayPIN(inputPIN); // Kembali ke input, jangan hapus
       }
     }
   }
