@@ -30,6 +30,9 @@ const int kamarId = 1;
 #define LED_G_PIN     13  // LED Hijau (Sukses)
 #define LED_Y_PIN     12  // LED Kuning (Proses/Trigger Kamera)
 #define CAM_TRIG_PIN  14  // Sinyal pemicu ke ESP32-CAM
+// GPIO 0 punya pull-up internal, tidak butuh resistor!
+// Sambung tombol langsung: GPIO 0 → GND. Jangan tekan saat ESP32 restart.
+#define BTN_KELUAR_PIN 0  // Tombol keluar dari dalam (sambung langsung ke GND)
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
@@ -52,6 +55,7 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 // Variabel Kontrol
 int pinSalahCount = 0;
+unsigned long lastBtnKeluar = 0; // Timestamp terakhir tombol keluar ditekan (anti-spam)
 
 // Flag komunikasi antar core (Core 0: polling web, Core 1: keypad/RFID)
 volatile bool perintahBukaWeb = false;
@@ -374,6 +378,8 @@ void setup() {
   pinMode(LED_G_PIN, OUTPUT);
   pinMode(LED_Y_PIN, OUTPUT);
   pinMode(CAM_TRIG_PIN, OUTPUT);
+  // GPIO 0 punya internal pull-up, tidak butuh resistor eksternal
+  pinMode(BTN_KELUAR_PIN, INPUT_PULLUP);
   
   // Inisialisasi awal Pin
   digitalWrite(RELAY_PIN, LOW);  // Kunci tertutup
@@ -468,6 +474,23 @@ void loop() {
     perintahBukaWeb = false; // Reset flag
     konfirmasiBukaPintuWeb();
     aksesDiterima("Buka Pintu via Web");
+  }
+
+  // 2. Cek tombol keluar dari dalam (tanpa verifikasi server)
+  // Cooldown 6 detik agar tidak trigger ulang setelah door open 5 detik
+  if (digitalRead(BTN_KELUAR_PIN) == LOW && millis() - lastBtnKeluar > 6000) {
+    delay(50); // Debounce singkat
+    if (digitalRead(BTN_KELUAR_PIN) == LOW) { // Konfirmasi masih ditekan
+      lastBtnKeluar = millis();
+      displayMessage("KELUAR", "Pintu Terbuka...");
+      feedbackSukses();
+      digitalWrite(RELAY_PIN, HIGH);
+      delay(5000);
+      digitalWrite(RELAY_PIN, LOW);
+      digitalWrite(LED_G_PIN, LOW);
+      displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
+      // TIDAK pakai while(LOW) → aman, tidak akan memblokir loop
+    }
   }
   
   // 2. Baca Scan Kartu RFID

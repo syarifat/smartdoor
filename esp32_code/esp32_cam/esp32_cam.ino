@@ -82,45 +82,37 @@ void redNyalaTerus() {
 void ambilDanKirimFoto() {
   Serial.println("\n=== [TRIGGER] Mulai proses foto ===");
 
-  // --- TAHAP 1: Pemanasan Sensor Kamera (WAJIB, agar tidak hitam!) ---
-  // Sensor OV2640 butuh beberapa frame untuk auto-exposure menyesuaikan diri
-  Serial.println("[1/5] Pemanasan sensor kamera (3 frame dummy)...");
-  
-  // Nyalakan flash lebih awal agar sensor bisa adjust eksposur terhadap cahaya flash
-  digitalWrite(FLASH_LED_PIN, HIGH);
-  delay(100);
+  // --- TAHAP 1: Flash ON dulu, baru pemanasan ---
+  // Sensor kamera punya buffer internal, frame yang tersimpan = SEBELUM flash nyala (gelap)
+  // Solusi: nyalakan flash, buang frame lama dari buffer, baru jepret
+  Serial.println("[1/5] Flash ON, membuang frame lama dari buffer...");
+  digitalWrite(FLASH_LED_PIN, HIGH); // Flash ON
 
-  // Ambil dan buang 3 frame dummy agar AE/AWB sensor stabil
+  // Flush frame-frame lama yang ada di buffer sebelum flash nyala
+  // fb_count=2 artinya ada 2 frame di buffer, buang keduanya + 1 extra
   for (int i = 0; i < 3; i++) {
     camera_fb_t* dummy = esp_camera_fb_get();
     if (dummy) {
       esp_camera_fb_return(dummy);
-      Serial.printf("[1/5] Frame dummy %d dibuang.\n", i + 1);
     }
-    delay(80);
+    delay(200); // Beri waktu sensor untuk AE menyesuaikan cahaya flash
   }
 
-  // Tunggu lagi agar eksposur benar-benar stabil sebelum jepret asli
-  delay(300);
+  // Tunggu sebentar agar eksposur benar-benar stabil
+  delay(200);
 
-  // --- TAHAP 2: Ambil Foto Asli ---
-  Serial.println("[2/5] Mengambil foto asli...");
-
-  // Ambil buffer gambar dari sensor kamera
+  // --- TAHAP 2: Ambil Foto Asli (flash masih ON, total ~1 detik) ---
+  Serial.println("[2/5] Mengambil foto asli dengan flash...");
   camera_fb_t* fb = esp_camera_fb_get();
-
-  // Matikan Flash LED
-  digitalWrite(FLASH_LED_PIN, LOW);
+  digitalWrite(FLASH_LED_PIN, LOW); // Flash OFF setelah jepret
 
   if (!fb) {
     Serial.println("[ERROR] Gagal ambil foto dari kamera!");
-    // Indikator GAGAL KAMERA: Red kedip cepat 5x
-    kedipRed(5);
+    kedipRed(5); // Error: RED saja, tidak pakai flash
     return;
   }
   Serial.printf("[OK] Foto terambil: %dx%d, %d bytes\n", fb->width, fb->height, fb->len);
-  // Indikator foto berhasil: Flash 2x pendek
-  kedipFlash(2);
+  // Tidak ada flash indicator di sini — foto sudah diambil, semua stealth
 
   // --- TAHAP 2: Koneksi SSL ke Server ---
   Serial.println("[2/5] Menghubungkan ke server HTTPS...");
@@ -145,20 +137,12 @@ void ambilDanKirimFoto() {
 
   if (!connected) {
     Serial.println("[ERROR] Gagal koneksi SSL ke server setelah 3 percobaan!");
-    // Indikator: Red + Flash bergantian 4x
-    for (int i = 0; i < 4; i++) {
-      digitalWrite(RED_LED_PIN, LOW);
-      delay(150);
-      digitalWrite(RED_LED_PIN, HIGH);
-      digitalWrite(FLASH_LED_PIN, HIGH);
-      delay(150);
-      digitalWrite(FLASH_LED_PIN, LOW);
-    }
+    kedipRed(4); // Error: RED saja, tidak pakai flash
     esp_camera_fb_return(fb);
     return;
   }
   Serial.println("[OK] Koneksi SSL berhasil!");
-  kedipFlash(1); // 1 kedip flash = koneksi OK
+  // Tidak ada flash indicator — stealth mode setelah foto diambil
 
   // --- TAHAP 3: Bangun & Kirim Request Multipart ---
   Serial.println("[3/5] Membangun HTTP request...");
@@ -244,10 +228,13 @@ void ambilDanKirimFoto() {
 
   if (sukses) {
     Serial.println("[OK] Upload foto BERHASIL!");
-    // Indikator SUKSES: Flash menyala panjang 1,5 detik
-    flashPanjang(1500);
+    // Indikator SUKSES: RED menyala panjang 1 detik (bukan flash — maling sudah dipotret)
+    digitalWrite(RED_LED_PIN, LOW);
+    delay(1000);
+    digitalWrite(RED_LED_PIN, HIGH);
   } else {
     Serial.println("[ERROR] Server menolak upload! Status: " + httpStatus);
+    kedipRed(5); // Gagal upload: RED saja
     // Indikator GAGAL SERVER: Red + Flash bergantian 5x
     for (int i = 0; i < 5; i++) {
       digitalWrite(RED_LED_PIN, LOW);
@@ -403,21 +390,13 @@ void loop() {
   // Deteksi sinyal trigger HIGH dari ESP32 Utama (GPIO 14 → GPIO 13)
   if (digitalRead(TRIGGER_PIN) == HIGH) {
     Serial.println("[TRIGGER] Sinyal HIGH diterima dari ESP32 Utama!");
-    // Indikator trigger diterima: Red + Flash kedip bersamaan 2x
-    for (int i = 0; i < 2; i++) {
-      digitalWrite(RED_LED_PIN, LOW);
-      digitalWrite(FLASH_LED_PIN, HIGH);
-      delay(150);
-      digitalWrite(RED_LED_PIN, HIGH);
-      digitalWrite(FLASH_LED_PIN, LOW);
-      delay(150);
-    }
+    // Indikator trigger: RED saja (TANPA flash agar maling tidak curiga)
+    digitalWrite(RED_LED_PIN, LOW);
+    delay(200);
+    digitalWrite(RED_LED_PIN, HIGH);
 
     ambilDanKirimFoto();
 
-    // Anti-spam: tunggu 5 detik sebelum mau trigger lagi
-    Serial.println("[WAIT] Cooldown 5 detik...");
-    delay(5000);
   }
 
   delay(10);
