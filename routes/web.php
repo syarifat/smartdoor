@@ -124,6 +124,37 @@ Route::post('/logout', function () {
     return redirect()->route('login')->with('success', 'Anda berhasil logout!');
 })->middleware('auth')->name('logout');
 
+// === TEMPORARY: Test kirim email, hapus setelah debug selesai ===
+// Akses: https://smartdoor.satcloud.tech/test-mail?key=smartdoor_cron_2026_xK9mP3qZ&to=emailanda@gmail.com
+Route::get('/test-mail', function () {
+    if (request('key') !== env('CRON_SECRET_KEY')) {
+        return response()->json(['error' => 'Unauthorized'], 401);
+    }
+    $to = request('to', env('MAIL_FROM_ADDRESS'));
+    try {
+        \Illuminate\Support\Facades\Mail::raw(
+            'Test email dari SmartDoor server. Jika ini masuk, SMTP berfungsi!',
+            function ($msg) use ($to) {
+                $msg->to($to)->subject('SmartDoor - Test Email');
+            }
+        );
+        return response()->json([
+            'ok'      => true,
+            'sent_to' => $to,
+            'mailer'  => env('MAIL_MAILER'),
+            'host'    => env('MAIL_HOST'),
+            'port'    => env('MAIL_PORT'),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'ok'    => false,
+            'error' => $e->getMessage(),
+            'host'  => env('MAIL_HOST'),
+            'port'  => env('MAIL_PORT'),
+        ], 500);
+    }
+})->name('test.mail');
+
 // ============================================================
 // CRON ENDPOINT — dipanggil oleh cron job pihak ketiga
 // URL: GET /cron/queue?key=YOUR_CRON_SECRET_KEY
