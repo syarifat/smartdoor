@@ -89,10 +89,9 @@ class RegisteredUserController extends Controller
 
         event(new Registered($user));
 
-        // Kirim email verifikasi via queue (async) agar halaman tidak lambat
-        // Email akan dikirim di background oleh queue worker, user langsung diredirect
+        // Kirim email verifikasi
         $verificationUrl = route('verifikasi.email', ['token' => $token]);
-        Mail::to($user->email)->queue(new VerifikasiAkunMail($user->name, $verificationUrl));
+        Mail::to($user->email)->send(new VerifikasiAkunMail($user->name, $verificationUrl));
 
         if ($request->wantsJson()) {
             return response()->json(['success' => true, 'redirect' => route('cek.email')]);
