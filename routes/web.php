@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Artisan;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PenghuniController;
 use App\Http\Controllers\ProfileController;
@@ -122,5 +123,34 @@ Route::post('/logout', function () {
     request()->session()->regenerateToken();
     return redirect()->route('login')->with('success', 'Anda berhasil logout!');
 })->middleware('auth')->name('logout');
+
+// ============================================================
+// CRON ENDPOINT — dipanggil oleh cron job pihak ketiga
+// URL: GET /cron/queue?key=YOUR_CRON_SECRET_KEY
+// Fungsi: memproses antrian email (kirim verifikasi registrasi)
+// ============================================================
+Route::get('/cron/queue', function () {
+    $key = request('key');
+    $expected = env('CRON_SECRET_KEY');
+
+    // Validasi secret key agar tidak sembarangan bisa diakses
+    if (!$expected || $key !== $expected) {
+        return response()->json(['error' => 'Unauthorized'], 401);
+    }
+
+    // Proses semua job di antrian lalu berhenti otomatis
+    Artisan::call('queue:work', [
+        '--stop-when-empty' => true,
+        '--timeout'         => 55,  // Batas 55 detik agar tidak timeout hosting
+        '--tries'           => 3,   // Coba ulang 3x jika gagal
+        '--queue'           => 'default',
+    ]);
+
+    return response()->json([
+        'ok'     => true,
+        'output' => Artisan::output(),
+        'time'   => now()->toDateTimeString(),
+    ]);
+})->name('cron.queue');
 
 require __DIR__.'/auth.php';
