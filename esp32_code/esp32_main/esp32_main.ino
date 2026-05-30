@@ -26,9 +26,9 @@ const int kamarId = 1;
 #define RST_PIN       -1  // RST hardwired ke 3.3V
 #define SS_PIN        5
 #define RELAY_PIN     15
-#define LED_R_BUZ_PIN 2   // Gabungan Buzzer & LED Merah
+#define LED_R_PIN     2   // LED Merah (Gagal)
 #define LED_G_PIN     13  // LED Hijau (Sukses)
-#define LED_Y_PIN     12  // LED Kuning (Proses/Trigger Kamera)
+#define BUZZER_PIN    12  // Buzzer terpisah (Bip)
 #define CAM_TRIG_PIN  14  // Sinyal pemicu ke ESP32-CAM
 // GPIO 0 punya pull-up internal, tidak butuh resistor!
 // Sambung tombol langsung: GPIO 0 → GND. Jangan tekan saat ESP32 restart.
@@ -100,25 +100,23 @@ void displayPIN(String pinSoFar) {
   display.display();
 }
 
-// Bunyi Bip & Kedip LED untuk Sukses
+// Bunyi Bip Panjang & LED Hijau Menyala untuk Sukses (tittttttt...)
 void feedbackSukses() {
   digitalWrite(LED_G_PIN, HIGH);
-  digitalWrite(LED_R_BUZ_PIN, HIGH); // Buzzer bip pendek
-  delay(150);
-  digitalWrite(LED_R_BUZ_PIN, LOW);
-  delay(100);
-  digitalWrite(LED_R_BUZ_PIN, HIGH);
-  delay(150);
-  digitalWrite(LED_R_BUZ_PIN, LOW);
+  digitalWrite(BUZZER_PIN, HIGH); 
+  delay(800); // Buzzer bip panjang
+  digitalWrite(BUZZER_PIN, LOW);
 }
 
-// Bunyi Bip Panjang & Kedip LED untuk Gagal
+// Bunyi 3x Bip Pendek & LED Merah Kedip untuk Gagal (tit tit tit..)
 void feedbackGagal() {
   digitalWrite(LED_G_PIN, LOW);
   for (int i = 0; i < 3; i++) {
-    digitalWrite(LED_R_BUZ_PIN, HIGH); // Bip error
+    digitalWrite(LED_R_PIN, HIGH);  // Merah nyala
+    digitalWrite(BUZZER_PIN, HIGH); // Buzzer tit
     delay(200);
-    digitalWrite(LED_R_BUZ_PIN, LOW);
+    digitalWrite(LED_R_PIN, LOW);   // Merah mati
+    digitalWrite(BUZZER_PIN, LOW);  // Buzzer mati
     delay(100);
   }
 }
@@ -132,7 +130,7 @@ void aksesDiterima(String welcomeMsg) {
   digitalWrite(RELAY_PIN, HIGH); 
   delay(5000); // Pintu terbuka selama 5 detik
   digitalWrite(RELAY_PIN, LOW);
-  digitalWrite(LED_G_PIN, LOW);
+  digitalWrite(LED_G_PIN, LOW); // Matikan LED Hijau setelah pintu tertutup
   
   displayMessage("PINTU TERTUTUP", "Silakan Tap/PIN");
 }
@@ -343,8 +341,6 @@ void triggerKamera() {
   // STEP 1: Tampilkan di LCD bahwa kita akan trigger kamera
   displayMessage("TRIGGER KAMERA", "Kirim sinyal...");
   Serial.println("[CAM] Mengirim sinyal trigger ke ESP32-CAM...");
-  
-  digitalWrite(LED_Y_PIN, HIGH); // LED Kuning menyala = sedang trigger
 
   // STEP 2: Kirim pulsa HIGH selama 2 detik ke ESP32-CAM
   digitalWrite(CAM_TRIG_PIN, HIGH);
@@ -359,7 +355,6 @@ void triggerKamera() {
   displayMessage("MENUNGGU CAM", "Upload foto...");
   delay(10000); // Tunggu 10 detik untuk ESP32-CAM selesai upload
 
-  digitalWrite(LED_Y_PIN, LOW);
   displayMessage("CAM SELESAI", "Siap Digunakan");
   Serial.println("[CAM] Proses trigger kamera selesai.");
 }
@@ -374,18 +369,18 @@ void setup() {
   
   // Set Pin Modes
   pinMode(RELAY_PIN, OUTPUT);
-  pinMode(LED_R_BUZ_PIN, OUTPUT);
+  pinMode(LED_R_PIN, OUTPUT);
   pinMode(LED_G_PIN, OUTPUT);
-  pinMode(LED_Y_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
   pinMode(CAM_TRIG_PIN, OUTPUT);
   // GPIO 0 punya internal pull-up, tidak butuh resistor eksternal
   pinMode(BTN_KELUAR_PIN, INPUT_PULLUP);
   
   // Inisialisasi awal Pin
   digitalWrite(RELAY_PIN, LOW);  // Kunci tertutup
-  digitalWrite(LED_R_BUZ_PIN, LOW);
+  digitalWrite(LED_R_PIN, LOW);
   digitalWrite(LED_G_PIN, LOW);
-  digitalWrite(LED_Y_PIN, LOW);
+  digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(CAM_TRIG_PIN, LOW);
   
   // Inisialisasi OLED
@@ -487,13 +482,13 @@ void loop() {
       digitalWrite(RELAY_PIN, HIGH);
       delay(5000);
       digitalWrite(RELAY_PIN, LOW);
-      digitalWrite(LED_G_PIN, LOW);
+      digitalWrite(LED_G_PIN, LOW); // Matikan LED hijau
       displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
       // TIDAK pakai while(LOW) → aman, tidak akan memblokir loop
     }
   }
   
-  // 2. Baca Scan Kartu RFID
+  // 3. Baca Scan Kartu RFID
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     // Ambil UID Kartu
     String uidString = "";
@@ -514,13 +509,13 @@ void loop() {
     rfid.PCD_StopCrypto1();
   }
   
-  // 3. Baca Input Keypad
+  // 4. Baca Input Keypad
   char key = keypad.getKey();
   if (key) {
-    // Beri suara bip singkat feedback tombol ditekan
-    digitalWrite(LED_R_BUZ_PIN, HIGH);
+    // Beri suara bip singkat feedback tombol ditekan (menggunakan Buzzer)
+    digitalWrite(BUZZER_PIN, HIGH);
     delay(50);
-    digitalWrite(LED_R_BUZ_PIN, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
     
     if (key >= '0' && key <= '9') {
       if (inputPIN.length() < 6) {

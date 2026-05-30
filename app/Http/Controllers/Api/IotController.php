@@ -58,6 +58,31 @@ class IotController extends Controller
             return response()->json(['success' => false, 'message' => 'Kamar tidak valid'], 404);
         }
 
+        // Cek apakah ini kartu owner (bisa membuka semua kamar)
+        $ownerUid = env('OWNER_CARD_UID');
+        if ($ownerUid && strtoupper($request->uid) === strtoupper($ownerUid)) {
+            LogAkses::create([
+                'uid'         => $request->uid,
+                'penghuni_id' => null,
+                'kamar_id'    => $kamar->id,
+                'status'      => 'berhasil',
+                'aksi'        => $request->aksi,
+                'keterangan'  => 'Akses Owner (Membuka Semua Pintu)',
+                'metode_akses'=> 'rfid'
+            ]);
+
+            $kamar->update([
+                'status_pintu' => 'terbuka',
+                'terakhir_diakses' => now()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Akses Owner Diizinkan',
+                'ambil_foto' => false
+            ], 200);
+        }
+
         $kartu = Kartu::where('uid', $request->uid)->with('penghuni')->first();
 
         // Tentukan status akses
