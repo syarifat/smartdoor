@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include "esp_camera.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
@@ -18,7 +19,7 @@ const int     kamarId    = 1;
 // ==========================================
 // 2. PIN DEFINITIONS
 // ==========================================
-#define TRIGGER_PIN   13  // Dari PIN 14 ESP32 Utama
+#define TRIGGER_PIN   15  // Dari PIN 14 ESP32 Utama (Gunakan GPIO 15 agar lebih stabil)
 #define FLASH_LED_PIN  4  // Flash LED bawaan ESP32-CAM AI-Thinker
 #define RED_LED_PIN   33  // LED merah kecil di belakang board (Active LOW)
 
@@ -64,7 +65,7 @@ void kedipRed(int n) {
   }
 }
 
-// Flash menyala PANJANG N detik → tanda sukses upload
+// Flash menyala PANJANG N ms → tanda sukses upload
 void flashPanjang(int ms) {
   digitalWrite(FLASH_LED_PIN, HIGH);
   delay(ms);
@@ -77,165 +78,177 @@ void redNyalaTerus() {
 }
 
 // ==========================================
-// 4. LOGIKA PENGAMBILAN & PENGIRIMAN FOTO
+// 4. HELPER: KONEKSI WIFI
 // ==========================================
+
+// Koneksi WiFi dengan timeout & auto-restart.
+// Dipanggil sekali saat setup (sebelum init kamera).
+// Koneksi WiFi dengan timeout.
+// Dipanggil sekali saat setup (sebelum init kamera).
+// JANGAN restart board jika gagal connect saat startup, biarkan lanjut
+// agar kamera tetap terinisialisasi dan loop() yang akan menyambung background.
+void koneksiWiFi() {
+  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  // Indikator: Red blink selama connecting
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
+    digitalWrite(RED_LED_PIN, LOW);
+    delay(250);
+    digitalWrite(RED_LED_PIN, HIGH);
+    delay(250);
+    attempts++;
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] GAGAL konek saat startup! Melanjutkan boot...");
+    // Indikator error: Red + Flash bergantian 3x
+    for (int i = 0; i < 3; i++) {
+      digitalWrite(RED_LED_PIN, LOW);
+      delay(200);
+      digitalWrite(RED_LED_PIN, HIGH);
+      digitalWrite(FLASH_LED_PIN, HIGH);
+      delay(200);
+      digitalWrite(FLASH_LED_PIN, LOW);
+    }
+  } else {
+    Serial.printf("[WiFi] Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
+    // Indikator WiFi OK: Red menyala panjang 1 detik lalu mati
+    digitalWrite(RED_LED_PIN, LOW);
+    delay(1000);
+    digitalWrite(RED_LED_PIN, HIGH);
+  }
+}
+
+// ==========================================
+// 5. LOGIKA PENGAMBILAN & PENGIRIMAN FOTO
+// ==========================================
+// Server: POST /api/iot/percobaan-gagal
+// Form-data: { "kamar_id": int, "foto": file }
+// Response: { "success": true, "message": str }
+// Server: POST /api/iot/percobaan-gagal
+// Form-data: { "kamar_id": int, "foto": file }
+// Response: { "success": true, "message": str }
 void ambilDanKirimFoto() {
   Serial.println("\n=== [TRIGGER] Mulai proses foto ===");
 
-  // --- TAHAP 1: Flash ON dulu, baru pemanasan ---
-  // Sensor kamera punya buffer internal, frame yang tersimpan = SEBELUM flash nyala (gelap)
-  // Solusi: nyalakan flash, buang frame lama dari buffer, baru jepret
-  Serial.println("[1/5] Flash ON, membuang frame lama dari buffer...");
-  digitalWrite(FLASH_LED_PIN, HIGH); // Flash ON
-
-  // Flush frame-frame lama yang ada di buffer sebelum flash nyala
-  // fb_count=2 artinya ada 2 frame di buffer, buang keduanya + 1 extra
+  // --- TAHAP 1: Flush buffer TANPA flash ---
+  // Buang frame-frame lama yang ada di buffer (gelap/stale) SEBELUM flash nyala.
+  Serial.println("[1/4] Flush buffer lama (tanpa flash)...");
   for (int i = 0; i < 3; i++) {
     camera_fb_t* dummy = esp_camera_fb_get();
-    if (dummy) {
-      esp_camera_fb_return(dummy);
-    }
-    delay(200); // Beri waktu sensor untuk AE menyesuaikan cahaya flash
+    if (dummy) esp_camera_fb_return(dummy);
+    delay(100);
   }
 
-  // Tunggu sebentar agar eksposur benar-benar stabil
-  delay(200);
+  // --- TAHAP 2: Flash ON → Jepret → Flash OFF (total ±1 detik) ---
+  // Flash hanya menyala SAAT jepret saja — tidak lebih lama, agar maling tidak curiga
+  Serial.println("[2/4] Flash ON, ambil foto (±1 detik)...");
+  digitalWrite(FLASH_LED_PIN, HIGH); // Flash ON
+  delay(700); // Beri waktu sensor AE menyesuaikan (~700ms), lalu jepret
 
-  // --- TAHAP 2: Ambil Foto Asli (flash masih ON, total ~1 detik) ---
-  Serial.println("[2/5] Mengambil foto asli dengan flash...");
-  camera_fb_t* fb = esp_camera_fb_get();
-  digitalWrite(FLASH_LED_PIN, LOW); // Flash OFF setelah jepret
+  camera_fb_t* fb = esp_camera_fb_get(); // Ambil foto
+  digitalWrite(FLASH_LED_PIN, LOW);      // Flash OFF segera setelah jepret
 
   if (!fb) {
     Serial.println("[ERROR] Gagal ambil foto dari kamera!");
-    kedipRed(5); // Error: RED saja, tidak pakai flash
+    kedipRed(5);
     return;
   }
   Serial.printf("[OK] Foto terambil: %dx%d, %d bytes\n", fb->width, fb->height, fb->len);
-  // Tidak ada flash indicator di sini — foto sudah diambil, semua stealth
 
-  // --- TAHAP 2: Koneksi SSL ke Server ---
-  Serial.println("[2/5] Menghubungkan ke server HTTPS...");
-  // Indikator: Red berkedip lambat selama connecting
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(20); // 20 detik timeout
-
-  bool connected = false;
-  for (int attempt = 1; attempt <= 3; attempt++) {
-    Serial.printf("[2/5] Percobaan koneksi %d/3...\n", attempt);
-    digitalWrite(RED_LED_PIN, LOW);
-    delay(300);
-    digitalWrite(RED_LED_PIN, HIGH);
-
-    if (client.connect(serverHost, serverPort)) {
-      connected = true;
-      break;
+  // --- TAHAP 2B: Hubungkan WiFi jika terputus (Capture First, Connect/Upload Second) ---
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Terputus saat akan upload, mencoba menyambungkan kembali...");
+    WiFi.begin(ssid, password);
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 12) { // Tunggu maksimal 6 detik
+      digitalWrite(RED_LED_PIN, LOW);
+      delay(250);
+      digitalWrite(RED_LED_PIN, HIGH);
+      delay(250);
+      attempts++;
     }
-    delay(1000);
   }
 
-  if (!connected) {
-    Serial.println("[ERROR] Gagal koneksi SSL ke server setelah 3 percobaan!");
-    kedipRed(4); // Error: RED saja, tidak pakai flash
-    esp_camera_fb_return(fb);
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[ERROR] WiFi tidak terhubung! Foto batal dikirim.");
+    kedipRed(4);
+    esp_camera_fb_return(fb); // Bebaskan frame buffer kamera
     return;
   }
-  Serial.println("[OK] Koneksi SSL berhasil!");
-  // Tidak ada flash indicator — stealth mode setelah foto diambil
 
-  // --- TAHAP 3: Bangun & Kirim Request Multipart ---
-  Serial.println("[3/5] Membangun HTTP request...");
+  // --- TAHAP 3: Upload foto ke server via HTTPClient ---
+  Serial.println("[3/4] Mengupload foto ke server...");
 
+  WiFiClientSecure sslClient;
+  sslClient.setInsecure();
+  sslClient.setTimeout(15);
+
+  HTTPClient http;
+  String url = "https://" + String(serverHost) + apiPath;
+  http.begin(sslClient, url);
+  http.setTimeout(15000); // 15 detik timeout HTTP
+
+  // Bangun body multipart secara manual lalu kirim via sendRequest
   String boundary = "ESP32Boundary" + String(millis());
+  http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
 
   String head = "--" + boundary + "\r\n";
   head += "Content-Disposition: form-data; name=\"kamar_id\"\r\n\r\n" + String(kamarId) + "\r\n";
   head += "--" + boundary + "\r\n";
   head += "Content-Disposition: form-data; name=\"foto\"; filename=\"capture.jpg\"\r\n";
   head += "Content-Type: image/jpeg\r\n\r\n";
-
   String tail = "\r\n--" + boundary + "--\r\n";
 
-  uint32_t totalLen = head.length() + fb->len + tail.length();
+  // Gabungkan semua bagian menjadi satu buffer untuk dikirim
+  size_t totalLen = head.length() + fb->len + tail.length();
+  uint8_t* body   = (uint8_t*) malloc(totalLen);
 
-  client.println("POST " + apiPath + " HTTP/1.1");
-  client.println("Host: " + String(serverHost));
-  client.println("Content-Type: multipart/form-data; boundary=" + boundary);
-  client.println("Content-Length: " + String(totalLen));
-  client.println("Connection: close");
-  client.println();
-  client.print(head);
-
-  // Kirim data biner foto dalam chunk 1KB
-  Serial.println("[4/5] Mengirim data foto...");
-  uint8_t* buf    = fb->buf;
-  size_t   bufLen = fb->len;
-  size_t   chunk  = 1024;
-  size_t   sent   = 0;
-  for (size_t n = 0; n < bufLen; n += chunk) {
-    size_t toWrite = (n + chunk < bufLen) ? chunk : (bufLen - n);
-    client.write(buf + n, toWrite);
-    sent += toWrite;
-  }
-  client.print(tail);
-  Serial.printf("[OK] %d bytes terkirim.\n", sent);
-
-  esp_camera_fb_return(fb); // Bebaskan memori segera
-
-  // --- TAHAP 4: Tunggu Respons Server ---
-  Serial.println("[5/5] Menunggu respons server (max 20 detik)...");
-  long startMs = millis();
-  bool gotResponse = false;
-  while (millis() - startMs < 20000) {
-    if (client.available()) {
-      gotResponse = true;
-      break;
-    }
-    delay(50);
-  }
-
-  if (!gotResponse) {
-    Serial.println("[ERROR] Timeout - tidak ada respons server!");
-    // Indikator TIMEOUT: Flash 3x lambat
-    for (int i = 0; i < 3; i++) {
-      digitalWrite(FLASH_LED_PIN, HIGH);
-      delay(400);
-      digitalWrite(FLASH_LED_PIN, LOW);
-      delay(400);
-    }
-    client.stop();
+  if (!body) {
+    Serial.println("[ERROR] Gagal alokasi memori untuk body upload!");
+    kedipRed(4);
+    esp_camera_fb_return(fb);
+    http.end();
     return;
   }
 
-  // Baca status HTTP dari BARIS PERTAMA response
-  String httpStatus = client.readStringUntil('\n');
-  Serial.println("[SERVER STATUS] " + httpStatus);
+  // Salin head + foto + tail ke buffer
+  memcpy(body,                          (uint8_t*)head.c_str(), head.length());
+  memcpy(body + head.length(),          fb->buf,                fb->len);
+  memcpy(body + head.length() + fb->len, (uint8_t*)tail.c_str(), tail.length());
 
-  // Baca sisa response body untuk log
-  String body = "";
-  while (client.available()) {
-    String line = client.readStringUntil('\n');
-    if (line.startsWith("{") || line.startsWith("[")) {
-      body = line;
+  esp_camera_fb_return(fb); // Bebaskan frame buffer kamera segera setelah dicopy
+
+  Serial.printf("[3/4] Mengirim %d bytes...\n", totalLen);
+  int httpCode = http.POST(body, totalLen);
+  free(body); // Bebaskan buffer body
+
+  Serial.printf("[3/4] HTTP Response Code: %d\n", httpCode);
+
+  if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+    String response = http.getString();
+    Serial.println("[OK] Upload foto BERHASIL! Response: " + response);
+  } else {
+    Serial.printf("[ERROR] Upload gagal! Code: %d\n", httpCode);
+    if (httpCode > 0) {
+      Serial.println("[SERVER] " + http.getString());
     }
   }
-  client.stop();
-  Serial.println("[SERVER BODY] " + body);
+  http.end();
 
-  // Cek status HTTP: baris pertama "HTTP/1.1 200 OK"
-  bool sukses = httpStatus.indexOf(" 200 ") >= 0 || httpStatus.indexOf(" 201 ") >= 0;
-
-  if (sukses) {
-    Serial.println("[OK] Upload foto BERHASIL!");
-    // Indikator SUKSES: RED menyala panjang 1 detik (bukan flash — maling sudah dipotret)
+  // --- TAHAP 4: Indikator hasil upload ---
+  if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+    // Indikator SUKSES: RED menyala 1 detik (stealth, bukan flash)
     digitalWrite(RED_LED_PIN, LOW);
     delay(1000);
     digitalWrite(RED_LED_PIN, HIGH);
   } else {
-    Serial.println("[ERROR] Server menolak upload! Status: " + httpStatus);
-    kedipRed(5); // Gagal upload: RED saja
-    // Indikator GAGAL SERVER: Red + Flash bergantian 5x
+    // Indikator GAGAL: Red + Flash bergantian 5x
     for (int i = 0; i < 5; i++) {
       digitalWrite(RED_LED_PIN, LOW);
       delay(100);
@@ -249,8 +262,9 @@ void ambilDanKirimFoto() {
   Serial.println("=== [SELESAI] Kamera siap kembali ===\n");
 }
 
+
 // ==========================================
-// 5. SETUP
+// 6. SETUP
 // ==========================================
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Matikan brownout detector
@@ -259,21 +273,28 @@ void setup() {
   delay(100);
   Serial.println("\n\n=== ESP32-CAM BOOTING ===");
 
-  // Init pin LED
+  // Init pin LED & trigger
   pinMode(FLASH_LED_PIN, OUTPUT);
-  pinMode(RED_LED_PIN, OUTPUT);
+  pinMode(RED_LED_PIN,   OUTPUT);
+  pinMode(TRIGGER_PIN,   INPUT_PULLUP); // Active LOW dengan internal pull-up (plus physical pull-up 10k)
   digitalWrite(FLASH_LED_PIN, LOW);
-  digitalWrite(RED_LED_PIN, HIGH); // Active LOW = OFF
-
-  // Init pin trigger
-  pinMode(TRIGGER_PIN, INPUT_PULLDOWN);
+  digitalWrite(RED_LED_PIN,   HIGH); // Active LOW = OFF
 
   // INDIKATOR BOOT: Flash 3 kedip cepat
   Serial.println("[BOOT] Indikator boot...");
   kedipFlash(3);
   delay(300);
 
-  // ---- Init Kamera ----
+  // ---- STEP 1: Koneksi WiFi DULU (sebelum init kamera) ----
+  // Alasan: Init kamera + radio WiFi aktif bersamaan bisa menyebabkan
+  // spike arus yang memicu brownout tersembunyi → WiFi gagal konek.
+  Serial.println("[BOOT] Menghubungkan WiFi terlebih dahulu...");
+  koneksiWiFi();
+
+  // Beri jeda singkat setelah WiFi stabil sebelum init kamera
+  delay(500);
+
+  // ---- STEP 2: Init Kamera (setelah WiFi stabil) ----
   Serial.println("[BOOT] Inisialisasi kamera...");
   camera_config_t config;
   config.ledc_channel  = LEDC_CHANNEL_0;
@@ -312,91 +333,66 @@ void setup() {
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("[ERROR FATAL] Kamera gagal init! Kode: 0x%x\n", err);
-    // INDIKATOR ERROR KAMERA: Red nyala terus selamanya
-    redNyalaTerus();
-    for (;;) {
-      // Blink flash lambat selamanya untuk tanda error
-      kedipFlash(1);
-      delay(1000);
+    // Blink merah terus-menerus lambat, JANGAN me-restart agar tidak boot loop
+    while (true) {
+      digitalWrite(RED_LED_PIN, LOW); // ON
+      delay(500);
+      digitalWrite(RED_LED_PIN, HIGH); // OFF
+      delay(500);
     }
   }
   Serial.println("[BOOT] Kamera OK!");
-  // Indikator kamera OK: Flash 1x
   kedipFlash(1);
   delay(300);
 
-  // ---- Koneksi WiFi ----
-  Serial.printf("[BOOT] Menghubungkan WiFi ke '%s'...\n", ssid);
-  WiFi.begin(ssid, password);
-
-  int wifiTimeout = 0;
-  while (WiFi.status() != WL_CONNECTED && wifiTimeout < 40) {
-    // Indikator WiFi connecting: Red blink cepat
-    digitalWrite(RED_LED_PIN, LOW);
-    delay(250);
-    digitalWrite(RED_LED_PIN, HIGH);
-    delay(250);
-    wifiTimeout++;
-    Serial.print(".");
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\n[ERROR FATAL] Gagal konek WiFi!");
-    // INDIKATOR ERROR WIFI: Red + Flash bergantian selamanya
-    for (;;) {
-      digitalWrite(RED_LED_PIN, LOW);
-      delay(200);
-      digitalWrite(RED_LED_PIN, HIGH);
-      digitalWrite(FLASH_LED_PIN, HIGH);
-      delay(200);
-      digitalWrite(FLASH_LED_PIN, LOW);
-    }
-  }
-
-  Serial.printf("\n[BOOT] WiFi Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
-  // INDIKATOR WIFI OK: Red nyala panjang 1 detik lalu mati
-  digitalWrite(RED_LED_PIN, LOW);
-  delay(1000);
-  digitalWrite(RED_LED_PIN, HIGH);
-
-  Serial.println("[READY] ESP32-CAM siap! Menunggu trigger pada GPIO 13...\n");
+  Serial.println("[READY] ESP32-CAM siap! Menunggu trigger Active LOW pada GPIO 13...\n");
 }
 
 // ==========================================
-// 6. LOOP UTAMA
+// 7. LOOP UTAMA
 // ==========================================
+unsigned long lastWiFiCheck = 0;
+unsigned long lastDebugPrint = 0;
+
 void loop() {
-  // Reconnect WiFi jika putus
+  // Reconnect WiFi non-blocking secara background jika terputus (tanpa me-restart board)
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WARN] WiFi terputus! Reconnecting...");
-    // Indikator: Red + Flash cepat bergantian selama reconnect
-    WiFi.reconnect();
-    int retry = 0;
-    while (WiFi.status() != WL_CONNECTED && retry < 20) {
+    if (millis() - lastWiFiCheck > 15000) { // Lakukan pengecekan setiap 15 detik
+      lastWiFiCheck = millis();
+      Serial.println("[WARN] WiFi terputus! Mencoba menghubungkan kembali secara background...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+    }
+  }
+
+  // Debug print state of TRIGGER_PIN setiap 2 detik untuk mempermudah pelacakan kabel
+  if (millis() - lastDebugPrint > 2000) {
+    lastDebugPrint = millis();
+    Serial.printf("[DEBUG] Pin Trigger (GPIO %d) saat ini: %s\n", TRIGGER_PIN, (digitalRead(TRIGGER_PIN) == HIGH ? "HIGH (Idle/Diam)" : "LOW (Trigger Aktif/Memfoto)"));
+  }
+
+  // Deteksi sinyal trigger Active LOW dari ESP32 Utama (GPIO 14 → GPIO 15)
+  // Pin bernilai LOW ketika dipicu oleh ESP32 Utama
+  if (digitalRead(TRIGGER_PIN) == LOW) {
+    Serial.println("[TRIGGER] Sinyal LOW diterima dari ESP32 Utama!");
+    
+    // Tunggu sedikit dan cek lagi untuk debounce singkat agar tidak false-trigger akibat noise
+    delay(50);
+    if (digitalRead(TRIGGER_PIN) == LOW) {
+      // Indikator trigger: RED saja (TANPA flash)
       digitalWrite(RED_LED_PIN, LOW);
       delay(200);
       digitalWrite(RED_LED_PIN, HIGH);
-      digitalWrite(FLASH_LED_PIN, HIGH);
-      delay(200);
-      digitalWrite(FLASH_LED_PIN, LOW);
-      retry++;
+
+      ambilDanKirimFoto();
+
+      // Tunggu hingga pin kembali HIGH (idle) sebelum lanjut,
+      // untuk mencegah double trigger jika proses ambil+upload sangat cepat.
+      unsigned long tStartWait = millis();
+      while (digitalRead(TRIGGER_PIN) == LOW && millis() - tStartWait < 5000) {
+        delay(50);
+      }
     }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("[OK] WiFi terhubung kembali.");
-    }
-    return;
-  }
-
-  // Deteksi sinyal trigger HIGH dari ESP32 Utama (GPIO 14 → GPIO 13)
-  if (digitalRead(TRIGGER_PIN) == HIGH) {
-    Serial.println("[TRIGGER] Sinyal HIGH diterima dari ESP32 Utama!");
-    // Indikator trigger: RED saja (TANPA flash agar maling tidak curiga)
-    digitalWrite(RED_LED_PIN, LOW);
-    delay(200);
-    digitalWrite(RED_LED_PIN, HIGH);
-
-    ambilDanKirimFoto();
-
   }
 
   delay(10);
