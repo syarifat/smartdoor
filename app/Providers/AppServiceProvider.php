@@ -26,5 +26,12 @@ class AppServiceProvider extends ServiceProvider
             || request()->server('HTTP_X_FORWARDED_PROTO') === 'https') {
             URL::forceScheme('https');
         }
+
+        // Daftarkan Custom Mailer Resend
+        \Illuminate\Support\Facades\Mail::extend('resend', function (array $config) {
+            return new \App\Mail\Transport\ResendTransport(
+                $config['api_key'] ?? env('RESEND_API_KEY')
+            );
+        });
     }
 }
