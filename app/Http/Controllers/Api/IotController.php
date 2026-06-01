@@ -101,7 +101,7 @@ class IotController extends Controller
             } else {
                 // Semua valid
                 $statusAkses = 'berhasil';
-                $keterangan = 'Akses diizinkan';
+                $keterangan = 'Akses via Kartu RFID';
                 $penghuniId = $kartu->penghuni->id;
 
                 // Trigger buka pintu
@@ -310,6 +310,15 @@ class IotController extends Controller
 
         if (!$kamar) {
             return response()->json(['success' => false, 'message' => 'Kamar tidak ditemukan'], 404);
+        }
+
+        // AUTO-LOCK FALLBACK: Jika terbuka lebih dari 5 detik, ubah otomatis ke tertutup
+        if ($kamar->status_pintu === 'terbuka' && $kamar->terakhir_diakses) {
+            if ($kamar->terakhir_diakses->addSeconds(5)->isPast()) {
+                $kamar->update([
+                    'status_pintu' => 'tertutup'
+                ]);
+            }
         }
 
         return response()->json([

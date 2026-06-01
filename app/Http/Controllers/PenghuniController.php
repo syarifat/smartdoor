@@ -41,6 +41,16 @@ class PenghuniController extends Controller
 
         if ($user && $user->penghuni && $user->penghuni->kamar) {
             $kamar = $user->penghuni->kamar;
+
+            // AUTO-LOCK FALLBACK: Sinkronisasi awal saat load halaman
+            if ($kamar->status_pintu === 'terbuka' && $kamar->terakhir_diakses) {
+                if ($kamar->terakhir_diakses->addSeconds(5)->isPast()) {
+                    $kamar->update([
+                        'status_pintu' => 'tertutup'
+                    ]);
+                }
+            }
+
             $logs = \App\Models\LogAkses::with('penghuni')
                 ->where('kamar_id', $kamar->id)
                 ->orderBy('waktu', 'desc')
