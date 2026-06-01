@@ -12,8 +12,8 @@
 // ==========================================
 // 1. KONFIGURASI JARINGAN & API PRODUCTION
 // ==========================================
-const char* ssid     = "satcloud";
-const char* password = "matahary02";
+const char* ssid     = "Farhan";
+const char* password = "123456789";
 
 // URL Produksi HTTPS
 const String serverUrl  = "https://smartdoor.satcloud.tech/api/iot";
@@ -68,6 +68,7 @@ SemaphoreHandle_t wifiMutex;
 
 // Forward declaration — displayMessage() didefinisikan di Section 4
 void displayMessage(String line1, String line2 = "");
+void kirimStatusPintu(String status);
 
 // Coba koneksi WiFi dengan timeout. Jika gagal, restart board.
 void koneksiWiFi() {
@@ -165,14 +166,17 @@ void aksesDiterima(String welcomeMsg) {
   digitalWrite(LED_G_PIN, LOW); // Matikan LED Hijau setelah pintu tertutup
 
   displayMessage("PINTU TERTUTUP", "Silakan Tap/PIN");
+
+  // Sinkronisasi status tertutup kembali ke server agar UI web terupdate otomatis
+  kirimStatusPintu("tertutup");
 }
 
 // ==========================================
 // 5. LOGIKA PENGIRIMAN HTTP REQUEST (HTTPS SECURE)
 // ==========================================
 
-// Kirim Konfirmasi ke Server setelah mengeksekusi Perintah Buka Pintu
-void konfirmasiBukaPintuWeb() {
+// Mengirimkan status pintu terbaru (terbuka/tertutup) ke server
+void kirimStatusPintu(String status) {
   if (WiFi.status() != WL_CONNECTED) return;
   if (xSemaphoreTake(wifiMutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
@@ -187,21 +191,25 @@ void konfirmasiBukaPintuWeb() {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
 
-  // Server mengharapkan: { "status_pintu": "terbuka" }
   DynamicJsonDocument doc(256);
-  doc["status_pintu"] = "terbuka";
+  doc["status_pintu"] = status;
 
   String jsonBody;
   serializeJson(doc, jsonBody);
 
   int httpCode = http.POST(jsonBody);
   if (httpCode == HTTP_CODE_OK) {
-    Serial.println("[WEB] Konfirmasi perintah berhasil dikirim.");
+    Serial.printf("[SERVER] Status pintu '%s' berhasil diperbarui.\n", status.c_str());
   } else {
-    Serial.printf("[WEB] Gagal kirim konfirmasi. Code: %d\n", httpCode);
+    Serial.printf("[SERVER] Gagal memperbarui status pintu. Code: %d\n", httpCode);
   }
   http.end();
   xSemaphoreGive(wifiMutex);
+}
+
+// Kirim Konfirmasi ke Server setelah mengeksekusi Perintah Buka Pintu
+void konfirmasiBukaPintuWeb() {
+  kirimStatusPintu("terbuka");
 }
 
 // Kirim data RFID ke Server untuk Verifikasi

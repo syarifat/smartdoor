@@ -113,7 +113,7 @@ class PenghuniController extends Controller
         $kamar = $penghuni->kamar;
         
         $kamar->update([
-            'status_pintu' => 'terbuka',
+            'perintah' => 'buka',
             'terakhir_diakses' => now()
         ]);
 
@@ -123,12 +123,12 @@ class PenghuniController extends Controller
             'kamar_id' => $kamar->id,
             'status' => 'berhasil',
             'aksi' => 'masuk',
-            'keterangan' => 'Akses remote via Web Dashboard',
+            'keterangan' => 'Akses remote via Web Dashboard (Menunggu respons alat)',
             'metode_akses' => 'web',
             'waktu' => now()
         ]);
 
-        return response()->json(['success' => true, 'message' => 'Pintu berhasil dibuka via remote web.']);
+        return response()->json(['success' => true, 'message' => 'Perintah buka pintu berhasil dikirim ke alat.']);
     }
 
     // ── Update Nomor HP Penghuni ─────────

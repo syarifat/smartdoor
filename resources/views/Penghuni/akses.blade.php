@@ -81,7 +81,7 @@
             <div class="card-body p-4 d-flex flex-column align-items-center justify-content-center text-center">
                 <i class="bi bi-phone-vibrate text-primary mb-3" style="font-size:40px;"></i>
                 <h5 class="fw-bold text-dark">Remote Buka Pintu (Mobile)</h5>
-                <p class="text-muted small mb-4">Anda dapat membuka pintu menggunakan tombol di bawah ini (hanya berfungsi saat terhubung ke jaringan WiFi Kos).</p>
+                <p class="text-muted small mb-4">Anda dapat membuka pintu menggunakan tombol di bawah ini secara remote dari mana saja melalui koneksi internet.</p>
                 <button class="btn btn-lg btn-primary rounded-pill px-5 fw-semibold shadow-sm" id="btnRemoteBukaPintu">
                     <i class="bi bi-fingerprint me-2"></i>Buka Pintu Sekarang
                 </button>
