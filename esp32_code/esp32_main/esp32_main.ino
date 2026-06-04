@@ -13,7 +13,7 @@
 // 1. KONFIGURASI JARINGAN & API PRODUCTION
 // ==========================================
 const char* ssid     = "Farhan";
-const char* password = "123456789";
+const char* password = "987654321";
 
 // URL Produksi HTTPS
 const String serverUrl  = "https://smartdoor.satcloud.tech/api/iot";
