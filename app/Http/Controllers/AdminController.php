@@ -9,6 +9,7 @@ use App\Models\AnggotaKeluarga;
 use App\Models\PercobaanGagal;
 use App\Models\LaporanKehilangan;
 use App\Models\LogAkses;
+use App\Models\Tagihan;
 use Illuminate\Support\Facades\Storage;
 
 class AdminController extends Controller
@@ -48,6 +49,10 @@ class AdminController extends Controller
         
         if ($request->has('metode') && in_array($request->metode, ['rfid', 'pin', 'web'])) {
             $query->where('metode_akses', $request->metode);
+        }
+
+        if ($request->has('status') && in_array($request->status, ['berhasil', 'ditolak'])) {
+            $query->where('status', $request->status);
         }
 
         $logs = $query->paginate(20);
@@ -110,10 +115,63 @@ class AdminController extends Controller
         return back()->with('success', 'Laporan ditandai sedang diproses.');
     }
 
-    public function selesaikanLaporan($id)
+    public function selesaikanLaporan(Request $request, $id)
     {
-        LaporanKehilangan::findOrFail($id)->update(['status' => 'selesai']);
-        return back()->with('success', 'Laporan ditandai selesai.');
+        $laporan = LaporanKehilangan::with('penghuni')->findOrFail($id);
+        $laporan->update(['status' => 'selesai']);
+
+        // Buat tagihan denda jika diisi dan belum pernah ditagihkan
+        if ($request->filled('jumlah_denda') && !$laporan->denda_ditagihkan) {
+            $jumlahDenda = (float) $request->jumlah_denda;
+
+            if ($jumlahDenda > 0 && $laporan->penghuni) {
+                $penghuni = $laporan->penghuni;
+
+                Tagihan::create([
+                    'penghuni_id'    => $penghuni->id,
+                    'kamar_id'       => $penghuni->kamar_id,
+                    'bulan'          => now()->translatedFormat('F Y'),
+                    'jumlah_tagihan' => $jumlahDenda,
+                    'tanggal_tagihan'=> now()->toDateString(),
+                    'keterangan'     => 'Denda kehilangan kartu akses RFID',
+                    'status'         => 'belum_bayar',
+                ]);
+
+                $laporan->update([
+                    'jumlah_denda'     => $jumlahDenda,
+                    'denda_ditagihkan' => true,
+                ]);
+            }
+        }
+
+        return back()->with('success', 'Laporan ditandai selesai' . ($request->filled('jumlah_denda') ? ' dan tagihan denda telah dibuat.' : '.'));
+    }
+
+    public function batalDenda($id)
+    {
+        $laporan = LaporanKehilangan::with('penghuni')->findOrFail($id);
+
+        if ($laporan->denda_ditagihkan && $laporan->penghuni) {
+            // Hapus tagihan denda
+            $tagihan = Tagihan::where('penghuni_id', $laporan->penghuni->id)
+                ->where('keterangan', 'LIKE', 'Denda kehilangan kartu akses RFID%')
+                ->latest()
+                ->first();
+                
+            if ($tagihan) {
+                $tagihan->delete();
+            }
+
+            // Reset status denda di laporan
+            $laporan->update([
+                'jumlah_denda' => null,
+                'denda_ditagihkan' => false,
+            ]);
+
+            return back()->with('success', 'Denda berhasil dibatalkan dan tagihan denda terkait telah dihapus.');
+        }
+
+        return back()->with('error', 'Laporan ini tidak memiliki denda yang ditagihkan atau tagihan sudah tidak tersedia.');
     }
 
     // ── Fitur 4: Real-time JSON endpoint untuk dashboard ─────────
@@ -155,5 +213,36 @@ class AdminController extends Controller
         }
 
         return back()->with('error', 'Gagal memperbarui nomor WhatsApp.');
+    }
+
+    public function aksesDarurat()
+    {
+        return view('admin.akses_darurat');
+    }
+
+    public function bukaSemuaPintu()
+    {
+        $kamars = \App\Models\Kamar::all();
+        $now = now();
+
+        foreach ($kamars as $kamar) {
+            $kamar->update([
+                'perintah' => 'buka_darurat',
+                'terakhir_diakses' => $now
+            ]);
+
+            \App\Models\LogAkses::create([
+                'uid'          => 'MASTER_WEB',
+                'penghuni_id'  => null,
+                'kamar_id'     => $kamar->id,
+                'status'       => 'berhasil',
+                'aksi'         => 'masuk',
+                'keterangan'   => 'Akses darurat pemilik kos - semua pintu dibuka',
+                'metode_akses' => 'web',
+                'waktu'        => $now
+            ]);
+        }
+
+        return back()->with('success', 'Perintah berhasil dikirim: Semua pintu kamar terbuka!');
     }
 }

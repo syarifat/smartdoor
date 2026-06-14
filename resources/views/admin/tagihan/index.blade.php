@@ -32,6 +32,7 @@
                     <th>Kamar</th>
                     <th>Bulan</th>
                     <th>Jumlah</th>
+                    <th>Keterangan</th>
                     <th>Status</th>
                     <th>Aksi</th>
                 </tr>
@@ -39,10 +40,26 @@
             <tbody>
                 @forelse($tagihans as $t)
                 <tr>
-                    <td class="fw-bold">{{ $t->penghuni->nama ?? '-' }}</td>
+                    <td class="fw-bold">
+                        {{ $t->penghuni->nama ?? '-' }}
+                        @if($t->keterangan && str_contains($t->keterangan, 'Denda kehilangan kartu'))
+                            <span class="badge bg-danger ms-1" style="font-size:10px;"><i class="bi bi-exclamation-triangle-fill"></i> Denda</span>
+                        @endif
+                    </td>
                     <td>Kamar {{ $t->kamar->nomor_kamar ?? '-' }}</td>
                     <td>{{ $t->bulan }}</td>
                     <td>Rp {{ number_format($t->jumlah_tagihan, 0, ',', '.') }}</td>
+                    <td style="max-width:200px;">
+                        @if($t->keterangan && str_contains($t->keterangan, 'Denda kehilangan kartu'))
+                            <span class="text-danger" style="font-size:12px;">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ $t->keterangan }}
+                            </span>
+                        @elseif($t->keterangan)
+                            <small class="text-muted">{{ $t->keterangan }}</small>
+                        @else
+                            <span class="text-muted">—</span>
+                        @endif
+                    </td>
                     <td>
                         @if($t->status == 'belum_bayar')
                             <span class="badge bg-danger">Belum Bayar</span>
@@ -102,7 +119,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="6" class="text-center text-muted py-4">Belum ada data tagihan.</td>
+                    <td colspan="7" class="text-center text-muted py-4">Belum ada data tagihan.</td>
                 </tr>
                 @endforelse
             </tbody>

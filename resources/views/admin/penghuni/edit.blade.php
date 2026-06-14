@@ -78,6 +78,17 @@
             </div>
         </div>
 
+        {{-- UID Kartu Cadangan --}}
+        <div class="mb-3">
+            <label class="form-label fw-semibold">UID Kartu e-KTP / Cadangan (Opsional)</label>
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-credit-card-2-front"></i></span>
+                <input type="text" name="uid_kartu_cadangan" class="form-control"
+                       value="{{ old('uid_kartu_cadangan', $penghuni->uid_kartu_cadangan) }}" placeholder="Contoh: A1B2C3D4">
+            </div>
+            <small class="text-muted">Gunakan kartu ini jika kartu utama bermasalah. Tempel e-KTP di reader untuk mendapatkan UID.</small>
+        </div>
+
         {{-- Alamat --}}
         <div class="mb-3">
             <label class="form-label fw-semibold">Alamat Asal</label>

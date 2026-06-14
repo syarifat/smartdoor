@@ -11,6 +11,7 @@ class Penghuni extends Model
     protected $fillable = [
         'user_id',
         'kamar_id',
+        'uid_kartu_cadangan',
         'nama',
         'telepon',
         'alamat',

@@ -84,6 +84,7 @@ class IotController extends Controller
         }
 
         $kartu = Kartu::where('uid', $request->uid)->with('penghuni')->first();
+        $penghuniCadangan = Penghuni::where('uid_kartu_cadangan', $request->uid)->first();
 
         // Tentukan status akses
         $statusAkses = 'ditolak';
@@ -105,6 +106,23 @@ class IotController extends Controller
                 $penghuniId = $kartu->penghuni->id;
 
                 // Trigger buka pintu
+                $kamar->update([
+                    'status_pintu' => 'terbuka',
+                    'terakhir_diakses' => now()
+                ]);
+            }
+        }
+
+        // Cek kartu cadangan jika verifikasi kartu utama belum berhasil
+        if ($statusAkses !== 'berhasil' && $penghuniCadangan) {
+            if ($penghuniCadangan->kamar_id !== $kamar->id) {
+                $keterangan = 'Bukan kamar penghuni tersebut (Cadangan)';
+                $penghuniId = $penghuniCadangan->id;
+            } else {
+                $statusAkses = 'berhasil';
+                $keterangan = 'Akses via Kartu e-KTP/Cadangan';
+                $penghuniId = $penghuniCadangan->id;
+
                 $kamar->update([
                     'status_pintu' => 'terbuka',
                     'terakhir_diakses' => now()
@@ -174,18 +192,62 @@ class IotController extends Controller
 
         if ($attempts >= 3) {
             return response()->json([
-                'status' => 'gagal',
+                'status' => 'ditolak',
                 'pesan' => 'Terlalu banyak percobaan. Coba lagi setelah 5 menit.',
+                'message' => 'Terlalu banyak percobaan. Coba lagi setelah 5 menit.',
                 'buka_pintu' => false
             ], 429);
+        }
+
+        // Cek PIN Master (Pemilik Kos)
+        $masterPin = \App\Models\Setting::where('key', 'master_pin')->first();
+        if ($masterPin && $masterPin->value && Hash::check($request->pin, $masterPin->value)) {
+            // Master PIN cocok, cek apakah kamar diizinkan
+            $masterPinRooms = \App\Models\Setting::where('key', 'master_pin_rooms')->first();
+            $allowedRooms = $masterPinRooms && $masterPinRooms->value ? json_decode($masterPinRooms->value, true) : [];
+            
+            if (in_array($kamarId, $allowedRooms)) {
+                Cache::forget($cacheKey);
+
+                Kamar::where('id', $kamarId)->update([
+                    'status_pintu' => 'terbuka',
+                    'terakhir_diakses' => now()
+                ]);
+
+                LogAkses::create([
+                    'uid'         => 'MASTER_KEYPAD',
+                    'penghuni_id' => null,
+                    'kamar_id'    => $kamarId,
+                    'status'      => 'berhasil',
+                    'aksi'        => 'masuk',
+                    'keterangan'  => 'Akses menggunakan PIN khusus pemilik kos',
+                    'metode_akses'=> 'pin'
+                ]);
+
+                return response()->json([
+                    'status' => 'berhasil',
+                    'tipe_akses' => 'master_pin',
+                    'pesan' => 'Akses pemilik kos berhasil',
+                    'message' => 'Akses pemilik kos berhasil',
+                    'buka_pintu' => true
+                ], 200);
+            } else {
+                return response()->json([
+                    'status' => 'ditolak',
+                    'pesan' => 'Master PIN tidak diizinkan untuk kamar ini.',
+                    'message' => 'Master PIN tidak diizinkan untuk kamar ini.',
+                    'buka_pintu' => false
+                ], 403);
+            }
         }
 
         $penghuni = Penghuni::where('kamar_id', $kamarId)->first();
 
         if (!$penghuni || !$penghuni->pin_aktif || !$penghuni->pin) {
             return response()->json([
-                'status' => 'gagal',
+                'status' => 'ditolak',
                 'pesan' => 'PIN tidak aktif atau tidak ditemukan.',
+                'message' => 'PIN tidak aktif atau tidak ditemukan.',
                 'buka_pintu' => false
             ], 403);
         }
@@ -212,6 +274,7 @@ class IotController extends Controller
             return response()->json([
                 'status' => 'berhasil',
                 'pesan' => 'Akses PIN diterima',
+                'message' => 'Akses PIN diterima',
                 'buka_pintu' => true
             ], 200);
 
@@ -222,7 +285,7 @@ class IotController extends Controller
 
             LogAkses::create([
                 'uid'         => 'KEYPAD',
-                'penghuni_id' => $penghuni->id,
+                'penghuni_id' => $penghuni ? $penghuni->id : null,
                 'kamar_id'    => $kamarId,
                 'status'      => 'ditolak',
                 'aksi'        => 'masuk',
@@ -248,8 +311,9 @@ class IotController extends Controller
             }
 
             return response()->json([
-                'status' => 'gagal',
-                'pesan' => 'PIN salah.',
+                'status' => 'ditolak',
+                'pesan' => 'PIN tidak valid',
+                'message' => 'PIN tidak valid',
                 'buka_pintu' => false,
                 'ambil_foto' => $ambilFoto
             ], 403);

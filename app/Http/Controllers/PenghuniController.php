@@ -33,7 +33,7 @@ class PenghuniController extends Controller
         return view('penghuni.dashboard', compact('nomorKamar', 'kamar', 'aksesHariIni', 'riwayatAkses'));
     }
 
-    public function akses()
+    public function akses(Request $request)
     {
         $user = auth()->user();
         $kamar = null;
@@ -51,10 +51,19 @@ class PenghuniController extends Controller
                 }
             }
 
-            $logs = \App\Models\LogAkses::with('penghuni')
+            $query = \App\Models\LogAkses::with('penghuni')
                 ->where('kamar_id', $kamar->id)
-                ->orderBy('waktu', 'desc')
-                ->paginate(10);
+                ->orderBy('waktu', 'desc');
+
+            if ($request->has('metode') && in_array($request->metode, ['rfid', 'pin', 'web'])) {
+                $query->where('metode_akses', $request->metode);
+            }
+
+            if ($request->has('status') && in_array($request->status, ['berhasil', 'ditolak'])) {
+                $query->where('status', $request->status);
+            }
+
+            $logs = $query->paginate(10)->withQueryString();
         }
 
         return view('penghuni.akses', compact('kamar', 'logs'));

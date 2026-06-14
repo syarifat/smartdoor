@@ -42,7 +42,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Laporan Kehilangan
     Route::get('/laporan-kehilangan', [AdminController::class, 'laporanKehilangan'])->name('laporan.index');
     Route::patch('/laporan-kehilangan/{id}/proses', [AdminController::class, 'prosesLaporan'])->name('laporan.proses');
-    Route::patch('/laporan-kehilangan/{id}/selesai', [AdminController::class, 'selesaikanLaporan'])->name('laporan.selesai');
+    Route::post('/laporan-kehilangan/{id}/selesai', [AdminController::class, 'selesaikanLaporan'])->name('laporan.selesai');
+    Route::delete('/laporan-kehilangan/{id}/batal-denda', [AdminController::class, 'batalDenda'])->name('laporan.batal_denda');
     
     // Laporan Gangguan
     Route::resource('laporan-gangguan', AdminLaporanGangguanController::class)->except(['create', 'store', 'edit', 'update']);
@@ -61,6 +62,14 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     
     // Update Profile/Nomor WA Admin
     Route::post('/update-nomor-hp', [AdminController::class, 'updateNomorHp'])->name('update_nomor_hp');
+    
+    // Setting / Master PIN
+    Route::get('/pengaturan', [\App\Http\Controllers\Admin\SettingController::class, 'index'])->name('setting.index');
+    Route::post('/pengaturan/master-pin', [\App\Http\Controllers\Admin\SettingController::class, 'updateMasterPin'])->name('setting.update_master_pin');
+
+    // Akses Darurat
+    Route::get('/akses-darurat', [AdminController::class, 'aksesDarurat'])->name('akses_darurat.index');
+    Route::post('/akses-darurat/buka-semua', [AdminController::class, 'bukaSemuaPintu'])->name('akses_darurat.buka_semua');
 });
 
 // ===== PENGHUNI ROUTES =====

@@ -6,7 +6,7 @@
 
 <div class="row g-4 mb-4">
 
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="stat-card blue">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -18,7 +18,7 @@
         </div>
     </div>
 
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="stat-card green">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -36,7 +36,7 @@
         </div>
     </div>
 
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="stat-card orange">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
@@ -44,6 +44,36 @@
                     <div class="stat-value">{{ $aksesHariIni }}</div>
                 </div>
                 <div class="stat-icon orange"><i class="bi bi-key"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="stat-card purple" style="border-left-color: #6f42c1;">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="stat-label">PIN Kamar</div>
+                    <div class="stat-value" style="font-size:18px; margin-top:5px;">
+                        @php $penghuni = auth()->user()->penghuni; @endphp
+                        @if($penghuni && $penghuni->pin)
+                            <span style="font-family: monospace; font-size: 20px; letter-spacing: 2px;">******</span>
+                        @else
+                            <span style="font-size: 14px; font-weight: normal; color: #666;">Belum diatur</span>
+                        @endif
+                    </div>
+                </div>
+                <div class="stat-icon purple" style="background: #f3e8fd; color: #6f42c1;"><i class="bi bi-asterisk"></i></div>
+            </div>
+            <div class="mt-2 text-muted" style="font-size: 11px;">
+                @if($penghuni && $penghuni->pin)
+                    @if($penghuni->pin_aktif)
+                        <span class="text-success fw-bold"><i class="bi bi-check-circle"></i> Status: Aktif</span>
+                    @else
+                        <span class="text-danger fw-bold"><i class="bi bi-x-circle"></i> Status: Nonaktif</span>
+                    @endif
+                @else
+                    Hubungi admin untuk set PIN
+                @endif
             </div>
         </div>
     </div>

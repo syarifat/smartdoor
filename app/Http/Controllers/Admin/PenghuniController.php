@@ -75,9 +75,10 @@ class PenghuniController extends Controller
             'alamat'   => 'nullable',
             'kamar_id' => 'nullable|exists:kamars,id',
             'foto_ktp' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'uid_kartu_cadangan' => 'nullable|string|max:50|unique:penghunis,uid_kartu_cadangan',
         ]);
 
-        $data = $request->only('nama', 'telepon', 'alamat', 'kamar_id');
+        $data = $request->only('nama', 'telepon', 'alamat', 'kamar_id', 'uid_kartu_cadangan');
 
         // Jika admin memilih dari autocomplete, link ke user yang ada
         if ($request->filled('user_id')) {
@@ -128,13 +129,14 @@ class PenghuniController extends Controller
             'alamat'   => 'nullable',
             'kamar_id' => 'nullable|exists:kamars,id',
             'foto_ktp' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'uid_kartu_cadangan' => 'nullable|string|max:50|unique:penghunis,uid_kartu_cadangan,' . $penghuni->id,
         ]);
 
         if ($penghuni->kamar_id && $penghuni->kamar_id != $request->kamar_id) {
             Kamar::find($penghuni->kamar_id)->update(['status' => 'tersedia']);
         }
 
-        $data = $request->only('nama', 'telepon', 'alamat', 'kamar_id');
+        $data = $request->only('nama', 'telepon', 'alamat', 'kamar_id', 'uid_kartu_cadangan');
 
         if ($request->hasFile('foto_ktp')) {
             if ($penghuni->foto_ktp) Storage::disk('public')->delete($penghuni->foto_ktp);

@@ -8,8 +8,8 @@
 // ==========================================
 // 1. KONFIGURASI JARINGAN & API PRODUCTION
 // ==========================================
-const char* ssid     = "Farhan";
-const char* password = "987654321";
+const char* ssid     = "satcloud";
+const char* password = "matahary02";
 
 const char*   serverHost = "smartdoor.satcloud.tech";
 const int     serverPort = 443;

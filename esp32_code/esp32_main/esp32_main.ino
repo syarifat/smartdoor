@@ -8,6 +8,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
+#include <ESP32Servo.h>
 
 // ==========================================
 // 1. KONFIGURASI JARINGAN & API PRODUCTION
@@ -21,15 +22,19 @@ const String nomorKamar = "101";
 const int    kamarId    = 1;
 
 // ==========================================
-// 2. KONFIGURASI PIN HARDWARE (JANGAN UBAH)
+// 2. KONFIGURASI PIN HARDWARE
 // ==========================================
 #define RST_PIN        -1  // RST hardwired ke 3.3V
 #define SS_PIN          5
 #define RELAY_PIN      15
 #define LED_R_PIN       2  // LED Merah (Gagal)
-#define LED_G_PIN      13  // LED Hijau (Sukses)
+#define SERVO_PIN      13  // Motor Servo (bekas LED Hijau, LED Hijau sekarang dijumper ke RELAY_PIN)
 #define BUZZER_PIN     12  // Buzzer terpisah (Bip)
 #define CAM_TRIG_PIN   14  // Sinyal pemicu ke ESP32-CAM
+
+Servo pintuServo;
+#define SERVO_LOCKED_POS   0   // Posisi terkunci (derajat)
+#define SERVO_UNLOCKED_POS 90  // Posisi terbuka (derajat)
 // GPIO 0 punya pull-up internal, tidak butuh resistor!
 // Sambung tombol langsung: GPIO 0 → GND. Jangan tekan saat ESP32 restart.
 #define BTN_KELUAR_PIN  0  // Tombol keluar dari dalam (sambung langsung ke GND)
@@ -57,7 +62,12 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 unsigned long lastBtnKeluar = 0; // Timestamp terakhir tombol keluar ditekan (anti-spam)
 
 // Flag komunikasi antar core (Core 0: polling web, Core 1: keypad/RFID)
-volatile bool perintahBukaWeb = false;
+enum PerintahWeb {
+  PERINTAH_NONE,
+  PERINTAH_BUKA,
+  PERINTAH_BUKA_DARURAT
+};
+volatile PerintahWeb perintahWebStatus = PERINTAH_NONE;
 
 // Mutex untuk mencegah dua core pakai WiFi bersamaan
 SemaphoreHandle_t wifiMutex;
@@ -68,7 +78,6 @@ SemaphoreHandle_t wifiMutex;
 
 // Forward declaration — displayMessage() didefinisikan di Section 4
 void displayMessage(String line1, String line2 = "");
-void kirimStatusPintu(String status);
 
 // Coba koneksi WiFi dengan timeout. Jika gagal, restart board.
 void koneksiWiFi() {
@@ -133,9 +142,16 @@ void displayPIN(String pinSoFar) {
   display.display();
 }
 
-// Bunyi Bip Panjang & LED Hijau Menyala untuk Sukses (tittttttt...)
+// Fungsi pembantu untuk menggerakkan servo dengan aman
+void moveServo(int angle) {
+  pintuServo.attach(SERVO_PIN);
+  pintuServo.write(angle);
+  delay(600); // Beri waktu servo berputar
+  pintuServo.detach(); // Putuskan sinyal agar servo hening & hemat daya
+}
+
+// Bunyi Bip Panjang (tittttttt...)
 void feedbackSukses() {
-  digitalWrite(LED_G_PIN, HIGH);
   digitalWrite(BUZZER_PIN, HIGH);
   delay(800); // Buzzer bip panjang
   digitalWrite(BUZZER_PIN, LOW);
@@ -143,7 +159,6 @@ void feedbackSukses() {
 
 // Bunyi 3x Bip Pendek & LED Merah Kedip untuk Gagal (tit tit tit..)
 void feedbackGagal() {
-  digitalWrite(LED_G_PIN, LOW);
   for (int i = 0; i < 3; i++) {
     digitalWrite(LED_R_PIN, HIGH);  // Merah nyala
     digitalWrite(BUZZER_PIN, HIGH); // Buzzer tit
@@ -154,29 +169,47 @@ void feedbackGagal() {
   }
 }
 
-// Aksi ketika Pintu Berhasil Dibuka
+// Aksi ketika Pintu Berhasil Dibuka (Normal - Solenoid saja)
 void aksesDiterima(String welcomeMsg) {
   displayMessage("AKSES DITERIMA", welcomeMsg);
   feedbackSukses();
 
-  // Aktifkan Solenoid Relay (Active HIGH)
+  // Aktifkan Solenoid Relay (Active HIGH) - LED Hijau ikut menyala karena jumper fisik
   digitalWrite(RELAY_PIN, HIGH);
   delay(5000); // Pintu terbuka selama 5 detik
   digitalWrite(RELAY_PIN, LOW);
-  digitalWrite(LED_G_PIN, LOW); // Matikan LED Hijau setelah pintu tertutup
 
   displayMessage("PINTU TERTUTUP", "Silakan Tap/PIN");
+}
 
-  // Sinkronisasi status tertutup kembali ke server agar UI web terupdate otomatis
-  kirimStatusPintu("tertutup");
+// Aksi ketika Pintu Dibuka untuk Darurat (Solenoid + Servo)
+void aksesDaruratDiterima(String welcomeMsg) {
+  displayMessage("AKSES DARURAT", welcomeMsg);
+  feedbackSukses();
+
+  // Aktifkan Solenoid Relay
+  digitalWrite(RELAY_PIN, HIGH);
+  
+  // Putar Servo ke Posisi Terbuka
+  moveServo(SERVO_UNLOCKED_POS);
+
+  delay(5000); // Pintu terbuka selama 5 detik
+
+  // Matikan Solenoid Relay
+  digitalWrite(RELAY_PIN, LOW);
+  
+  // Putar Servo kembali ke Posisi Terkunci
+  moveServo(SERVO_LOCKED_POS);
+
+  displayMessage("PINTU TERTUTUP", "Silakan Tap/PIN");
 }
 
 // ==========================================
 // 5. LOGIKA PENGIRIMAN HTTP REQUEST (HTTPS SECURE)
 // ==========================================
 
-// Mengirimkan status pintu terbaru (terbuka/tertutup) ke server
-void kirimStatusPintu(String status) {
+// Kirim Konfirmasi ke Server setelah mengeksekusi Perintah Buka Pintu
+void konfirmasiBukaPintuWeb() {
   if (WiFi.status() != WL_CONNECTED) return;
   if (xSemaphoreTake(wifiMutex, pdMS_TO_TICKS(5000)) != pdTRUE) return;
 
@@ -191,25 +224,21 @@ void kirimStatusPintu(String status) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
 
+  // Server mengharapkan: { "status_pintu": "terbuka" }
   DynamicJsonDocument doc(256);
-  doc["status_pintu"] = status;
+  doc["status_pintu"] = "terbuka";
 
   String jsonBody;
   serializeJson(doc, jsonBody);
 
   int httpCode = http.POST(jsonBody);
   if (httpCode == HTTP_CODE_OK) {
-    Serial.printf("[SERVER] Status pintu '%s' berhasil diperbarui.\n", status.c_str());
+    Serial.println("[WEB] Konfirmasi perintah berhasil dikirim.");
   } else {
-    Serial.printf("[SERVER] Gagal memperbarui status pintu. Code: %d\n", httpCode);
+    Serial.printf("[WEB] Gagal kirim konfirmasi. Code: %d\n", httpCode);
   }
   http.end();
   xSemaphoreGive(wifiMutex);
-}
-
-// Kirim Konfirmasi ke Server setelah mengeksekusi Perintah Buka Pintu
-void konfirmasiBukaPintuWeb() {
-  kirimStatusPintu("terbuka");
 }
 
 // Kirim data RFID ke Server untuk Verifikasi
@@ -415,7 +444,6 @@ void setup() {
   // Set Pin Modes
   pinMode(RELAY_PIN,      OUTPUT);
   pinMode(LED_R_PIN,      OUTPUT);
-  pinMode(LED_G_PIN,      OUTPUT);
   pinMode(BUZZER_PIN,     OUTPUT);
   pinMode(CAM_TRIG_PIN,   OUTPUT);
   // GPIO 0 punya internal pull-up, tidak butuh resistor eksternal
@@ -424,9 +452,11 @@ void setup() {
   // Inisialisasi awal Pin (Active LOW untuk CAM_TRIG_PIN)
   digitalWrite(RELAY_PIN,    LOW);  // Kunci tertutup
   digitalWrite(LED_R_PIN,    LOW);
-  digitalWrite(LED_G_PIN,    LOW);
   digitalWrite(BUZZER_PIN,   LOW);
   digitalWrite(CAM_TRIG_PIN, HIGH); // Idle = HIGH (Active LOW)
+
+  // Set Servo ke posisi terkunci saat awal booting
+  moveServo(SERVO_LOCKED_POS);
 
   // Inisialisasi OLED
   Wire.begin();
@@ -472,11 +502,14 @@ void setup() {
           DynamicJsonDocument doc(512);
           deserializeJson(doc, payload);
 
-          // Cek field "perintah" — server set "buka" saat ada perintah dari web
+          // Cek field "perintah" — server set "buka"/"buka_darurat" saat ada perintah dari web
           String perintah = doc["perintah"].as<String>();
           if (perintah == "buka") {
-            Serial.println("[WEB] Menerima perintah buka pintu dari Web!");
-            perintahBukaWeb = true;
+            Serial.println("[WEB] Menerima perintah buka pintu biasa dari Web!");
+            perintahWebStatus = PERINTAH_BUKA;
+          } else if (perintah == "buka_darurat") {
+            Serial.println("[WEB] Menerima perintah BUKA DARURAT dari Web!");
+            perintahWebStatus = PERINTAH_BUKA_DARURAT;
           }
         } else {
           Serial.printf("[POLL] Status-pintu error, code: %d\n", code);
@@ -521,13 +554,19 @@ void loop() {
   }
 
   // 1. Cek flag perintah buka pintu dari Web (dikirim oleh task Core 0)
-  if (perintahBukaWeb) {
-    perintahBukaWeb = false; // Reset flag
+  if (perintahWebStatus != PERINTAH_NONE) {
+    PerintahWeb currentCmd = perintahWebStatus;
+    perintahWebStatus = PERINTAH_NONE; // Reset flag
     konfirmasiBukaPintuWeb();
-    aksesDiterima("Buka Pintu via Web");
+    
+    if (currentCmd == PERINTAH_BUKA_DARURAT) {
+      aksesDaruratDiterima("Akses Darurat Web");
+    } else {
+      aksesDiterima("Buka Pintu via Web");
+    }
   }
 
-  // 2. Cek tombol keluar dari dalam (tanpa verifikasi server)
+  // 2. Cek tombol keluar dari dalam (tanpa verifikasi server - normal solenoid saja)
   // Cooldown 6 detik agar tidak trigger ulang setelah door open 5 detik
   if (digitalRead(BTN_KELUAR_PIN) == LOW && millis() - lastBtnKeluar > 6000) {
     delay(50); // Debounce singkat
@@ -538,7 +577,6 @@ void loop() {
       digitalWrite(RELAY_PIN, HIGH);
       delay(5000);
       digitalWrite(RELAY_PIN, LOW);
-      digitalWrite(LED_G_PIN, LOW); // Matikan LED hijau
       displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
     }
   }

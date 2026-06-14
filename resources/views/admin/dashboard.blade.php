@@ -123,7 +123,7 @@
 
 </div>
 
-{{-- STAT CARD ROW 2: Pendaftar Menunggu --}}
+{{-- STAT CARD ROW 2: Pendaftar Menunggu & Pengaturan --}}
 <div class="row g-4 mb-4">
     <div class="col-md-4">
         <div class="stat-card orange stat-card-clickable" data-bs-toggle="modal" data-bs-target="#modalPendaftar">
@@ -138,6 +138,38 @@
                 <span class="badge" style="background:#fef3e8; color:#fd7e14; padding:6px 10px; font-size:10px; border-radius:8px; letter-spacing:0.5px;">Pendaftar Baru</span>
             </div>
             <div class="click-hint" style="margin-top:8px; font-size:10px; color:#888;"><i class="bi bi-eye"></i> Klik untuk lihat detail</div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="stat-card stat-card-clickable" style="border-left-color: #6c757d;" onclick="window.location.href='{{ route('admin.setting.index') }}'">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="stat-label">Pengaturan Sistem</div>
+                    <div class="stat-value" style="font-size:16px; margin-top:5px;">Master PIN</div>
+                </div>
+                <div class="stat-icon" style="background: #f8f9fa; color: #6c757d;"><i class="bi bi-gear"></i></div>
+            </div>
+            <div class="mt-3">
+                <span class="badge" style="background:#e9ecef; color:#495057; padding:6px 10px; font-size:10px; border-radius:8px; letter-spacing:0.5px;">Atur PIN Pemilik Kos</span>
+            </div>
+            <div class="click-hint" style="margin-top:8px; font-size:10px; color:#888;"><i class="bi bi-gear"></i> Klik untuk mengatur</div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="stat-card stat-card-clickable red" style="border-left-color: #dc3545;" onclick="window.location.href='{{ route('admin.akses_darurat.index') }}'">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="stat-label">Akses Darurat</div>
+                    <div class="stat-value text-danger" style="font-size:16px; margin-top:5px;">Buka Semua Pintu</div>
+                </div>
+                <div class="stat-icon" style="background: #fde8e8; color: #dc3545;"><i class="bi bi-exclamation-triangle-fill"></i></div>
+            </div>
+            <div class="mt-3">
+                <span class="badge" style="background:#fde8e8; color:#dc3545; padding:6px 10px; font-size:10px; border-radius:8px; letter-spacing:0.5px;">Prosedur Evakuasi</span>
+            </div>
+            <div class="click-hint" style="margin-top:8px; font-size:10px; color:#888;"><i class="bi bi-shield-exclamation"></i> Klik untuk akses darurat</div>
         </div>
     </div>
 </div>

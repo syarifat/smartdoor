@@ -81,7 +81,7 @@
             <div class="card-body p-4 d-flex flex-column align-items-center justify-content-center text-center">
                 <i class="bi bi-phone-vibrate text-primary mb-3" style="font-size:40px;"></i>
                 <h5 class="fw-bold text-dark">Remote Buka Pintu (Mobile)</h5>
-                <p class="text-muted small mb-4">Anda dapat membuka pintu menggunakan tombol di bawah ini secara remote dari mana saja melalui koneksi internet.</p>
+                <p class="text-muted small mb-4">Anda dapat membuka pintu menggunakan tombol di bawah ini (hanya berfungsi saat terhubung ke jaringan WiFi Kos).</p>
                 <button class="btn btn-lg btn-primary rounded-pill px-5 fw-semibold shadow-sm" id="btnRemoteBukaPintu">
                     <i class="bi bi-fingerprint me-2"></i>Buka Pintu Sekarang
                 </button>
@@ -173,11 +173,32 @@ document.getElementById('btnRemoteBukaPintu').addEventListener('click', async fu
 
 
 <div class="card-table">
-    <div class="card-header-title d-flex justify-content-between align-items-center">
-        <div><i class="bi bi-clock-history"></i> Riwayat Akses Kamar Anda</div>
-        <button class="btn btn-sm btn-outline-secondary" onclick="window.location.reload();">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+        <div class="card-header-title m-0">
+            <i class="bi bi-clock-history"></i> Riwayat Akses Kamar Anda
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-3 mt-md-0">
+            <form method="GET" class="d-flex gap-2 align-items-center flex-nowrap m-0">
+                <select name="metode" class="form-select form-select-sm" onchange="this.form.submit()" style="width:140px;">
+                    <option value="">Semua Metode</option>
+                    <option value="rfid" {{ request('metode') == 'rfid' ? 'selected' : '' }}>RFID</option>
+                    <option value="pin"  {{ request('metode') == 'pin'  ? 'selected' : '' }}>PIN</option>
+                    <option value="web"  {{ request('metode') == 'web'  ? 'selected' : '' }}>Web / Remote</option>
+                </select>
+
+                <select name="status" class="form-select form-select-sm" onchange="this.form.submit()" style="width:140px;">
+                    <option value="">Semua Status</option>
+                    <option value="berhasil" {{ request('status') == 'berhasil' ? 'selected' : '' }}>✅ Berhasil</option>
+                    <option value="ditolak"  {{ request('status') == 'ditolak'  ? 'selected' : '' }}>❌ Ditolak</option>
+                </select>
+
+                @if(request('metode') || request('status'))
+                    <a href="{{ route('penghuni.akses') }}" class="btn btn-sm btn-outline-danger px-2" title="Reset Filter">
+                        <i class="bi bi-x-lg"></i>
+                    </a>
+                @endif
+            </form>
+        </div>
     </div>
     <table class="table table-hover align-middle">
         <thead class="table-light">
