@@ -58,8 +58,9 @@ class IotController extends Controller
             return response()->json(['success' => false, 'message' => 'Kamar tidak valid'], 404);
         }
 
-        // Cek apakah ini kartu owner (bisa membuka semua kamar)
-        $ownerUid = env('OWNER_CARD_UID');
+        // Cek apakah ini kartu owner (bisa membuka semua kamar) dari database settings
+        $ownerUidSetting = \App\Models\Setting::where('key', 'owner_card_uid')->first();
+        $ownerUid = $ownerUidSetting ? $ownerUidSetting->value : null;
         if ($ownerUid && strtoupper($request->uid) === strtoupper($ownerUid)) {
             LogAkses::create([
                 'uid'         => $request->uid,

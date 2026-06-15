@@ -42,18 +42,15 @@
                 </div>
 
                 <div class="mb-4">
-                    <label class="form-label fw-semibold">Kamar</label>
+                    <label class="form-label fw-semibold">ID Kartu Admin (Owner Card UID)</label>
                     <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-door-open"></i></span>
-                        <select name="kamar_ids[]" class="form-select">
-                            <option value="">-- Pilih Kamar --</option>
-                            @foreach($kamars as $kamar)
-                                <option value="{{ $kamar->id }}" {{ in_array($kamar->id, $allowedRooms) ? 'selected' : '' }}>
-                                    Kamar {{ $kamar->nomor_kamar }}
-                                </option>
-                            @endforeach
-                        </select>
+                        <span class="input-group-text"><i class="bi bi-card-heading"></i></span>
+                        <input type="text" name="owner_card_uid" class="form-control" placeholder="Contoh: 026A2C02" value="{{ old('owner_card_uid', $ownerCardUid) }}">
                     </div>
+                    <small class="text-muted">UID Kartu RFID milik owner/admin yang dapat membuka seluruh pintu kamar kos.</small>
+                    @error('owner_card_uid')
+                        <div class="text-danger small mt-1">{{ $message }}</div>
+                    @enderror
                 </div>
 
                 <button type="submit" class="btn btn-primary">

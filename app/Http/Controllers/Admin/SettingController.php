@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Setting;
-use App\Models\Kamar;
 use Illuminate\Support\Facades\Hash;
 
 class SettingController extends Controller
@@ -13,20 +12,18 @@ class SettingController extends Controller
     public function index()
     {
         $masterPin = Setting::where('key', 'master_pin')->first();
-        $masterPinRoomsSetting = Setting::where('key', 'master_pin_rooms')->first();
+        $ownerCardUidSetting = Setting::where('key', 'owner_card_uid')->first();
         
-        $allowedRooms = $masterPinRoomsSetting && $masterPinRoomsSetting->value ? json_decode($masterPinRoomsSetting->value, true) : [];
-        $kamars = Kamar::orderBy('nomor_kamar')->get();
+        $ownerCardUid = $ownerCardUidSetting ? $ownerCardUidSetting->value : '';
 
-        return view('admin.setting.index', compact('masterPin', 'allowedRooms', 'kamars'));
+        return view('admin.setting.index', compact('masterPin', 'ownerCardUid'));
     }
 
     public function updateMasterPin(Request $request)
     {
         $request->validate([
-            'master_pin' => 'nullable|digits:6',
-            'kamar_ids'  => 'nullable|array',
-            'kamar_ids.*'=> 'nullable|exists:kamars,id',
+            'master_pin'     => 'nullable|digits:6',
+            'owner_card_uid' => 'nullable|string|max:50',
         ]);
 
         if ($request->filled('master_pin')) {
@@ -36,13 +33,11 @@ class SettingController extends Controller
             );
         }
 
-        // Save allowed rooms
-        $allowedRooms = $request->kamar_ids ?? [];
         Setting::updateOrCreate(
-            ['key' => 'master_pin_rooms'],
-            ['value' => json_encode($allowedRooms)]
+            ['key' => 'owner_card_uid'],
+            ['value' => $request->owner_card_uid]
         );
 
-        return back()->with('success', 'Pengaturan PIN Khusus Pemilik Kos berhasil disimpan!');
+        return back()->with('success', 'Pengaturan Master PIN & Kartu Admin berhasil disimpan!');
     }
 }
