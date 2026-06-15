@@ -7,7 +7,7 @@
     <div class="col-md-6">
         <div class="card-table">
             <div class="card-header-title mb-3">
-                <i class="bi bi-gear"></i> PIN Khusus Pemilik Kos (Master PIN)
+                <i class="bi bi-gear"></i> Master PIN
             </div>
 
             @if(session('success'))

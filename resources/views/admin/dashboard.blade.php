@@ -145,8 +145,7 @@
         <div class="stat-card stat-card-clickable" style="border-left-color: #6c757d;" onclick="window.location.href='{{ route('admin.setting.index') }}'">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <div class="stat-label">Pengaturan Sistem</div>
-                    <div class="stat-value" style="font-size:16px; margin-top:5px;">Master PIN</div>
+                    <div class="stat-label" style="font-size: 18px; font-weight: bold; color: #333;">Master PIN</div>
                 </div>
                 <div class="stat-icon" style="background: #f8f9fa; color: #6c757d;"><i class="bi bi-gear"></i></div>
             </div>
