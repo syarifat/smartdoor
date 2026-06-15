@@ -31,12 +31,12 @@
                 </div>
 
                 <div class="mb-4">
-                    <label class="form-label fw-semibold">Set/Reset Master PIN Baru</label>
+                    <label class="form-label fw-semibold">Set/Reset Master PIN Baru (6 Digit)</label>
                     <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-card-heading"></i></span>
-                        <input type="text" name="master_pin" class="form-control" placeholder="Biarkan kosong jika tidak ingin mengubah PIN" value="{{ old('master_pin') }}">
+                        <span class="input-group-text"><i class="bi bi-asterisk"></i></span>
+                        <input type="text" name="master_pin" class="form-control" placeholder="Biarkan kosong jika tidak ingin mengubah PIN" pattern="[0-9]{6}" maxlength="6" value="{{ old('master_pin') }}">
                     </div>
-                    <small class="text-muted">UID Kartu RFID milik owner/admin yang dapat membuka seluruh pintu kamar kos.</small>
+                    <small class="text-muted">Masukkan 6 digit angka baru.</small>
                     @error('master_pin')
                         <div class="text-danger small mt-1">{{ $message }}</div>
                     @enderror

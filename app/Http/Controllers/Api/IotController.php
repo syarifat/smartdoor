@@ -58,9 +58,8 @@ class IotController extends Controller
             return response()->json(['success' => false, 'message' => 'Kamar tidak valid'], 404);
         }
 
-        // Cek apakah ini kartu owner (bisa membuka semua kamar) dari database settings
-        $ownerUidSetting = \App\Models\Setting::where('key', 'master_pin')->first();
-        $ownerUid = $ownerUidSetting ? $ownerUidSetting->value : null;
+        // Cek apakah ini kartu owner (bisa membuka semua kamar) dari ENV
+        $ownerUid = env('OWNER_CARD_UID');
         if ($ownerUid && strtoupper($request->uid) === strtoupper($ownerUid)) {
             LogAkses::create([
                 'uid'         => $request->uid,
@@ -200,7 +199,39 @@ class IotController extends Controller
             ], 429);
         }
 
+        // Cek PIN Master (Pemilik Kos)
+        $masterPin = \App\Models\Setting::where('key', 'master_pin')->first();
+        if ($masterPin && $masterPin->value) {
+            $isMatch = ($request->pin === $masterPin->value) || 
+                       (str_starts_with($masterPin->value, '$2y$') && Hash::check($request->pin, $masterPin->value));
+            
+            if ($isMatch) {
+                Cache::forget($cacheKey);
 
+                Kamar::where('id', $kamarId)->update([
+                    'status_pintu' => 'terbuka',
+                    'terakhir_diakses' => now()
+                ]);
+
+                LogAkses::create([
+                    'uid'         => 'MASTER_KEYPAD',
+                    'penghuni_id' => null,
+                    'kamar_id'    => $kamarId,
+                    'status'      => 'berhasil',
+                    'aksi'        => 'masuk',
+                    'keterangan'  => 'Akses menggunakan PIN khusus pemilik kos',
+                    'metode_akses'=> 'pin'
+                ]);
+
+                return response()->json([
+                    'status' => 'berhasil',
+                    'tipe_akses' => 'master_pin',
+                    'pesan' => 'Akses pemilik kos berhasil',
+                    'message' => 'Akses pemilik kos berhasil',
+                    'buka_pintu' => true
+                ], 200);
+            }
+        }
 
         $penghuni = Penghuni::where('kamar_id', $kamarId)->first();
 

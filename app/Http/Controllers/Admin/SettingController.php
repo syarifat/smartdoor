@@ -20,13 +20,13 @@ class SettingController extends Controller
     public function updateMasterPin(Request $request)
     {
         $request->validate([
-            'master_pin' => 'nullable|string|max:50',
+            'master_pin' => 'nullable|digits:6',
         ]);
 
         if ($request->filled('master_pin')) {
             Setting::updateOrCreate(
                 ['key' => 'master_pin'],
-                ['value' => strtoupper(trim($request->master_pin))]
+                ['value' => trim($request->master_pin)]
             );
         }
 
