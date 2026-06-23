@@ -148,6 +148,10 @@ void moveServo(int angle) {
   pintuServo.write(angle);
   delay(600); // Beri waktu servo berputar
   pintuServo.detach(); // Putuskan sinyal agar servo hening & hemat daya
+  
+  // Re-inisialisasi RFID reader setelah servo bergerak
+  // untuk mengatasi reset/hang akibat drop tegangan (power spikes)
+  rfid.PCD_Init();
 }
 
 // Bunyi Bip Panjang (tittttttt...)
@@ -176,12 +180,8 @@ void aksesDiterima(String welcomeMsg) {
 
   // Aktifkan Solenoid Relay (Active HIGH) - LED Hijau ikut menyala karena jumper fisik
   digitalWrite(RELAY_PIN, HIGH);
-  moveServo(SERVO_UNLOCKED_POS); // Putar Servo ke Posisi Terbuka (90 derajat)
-
   delay(5000); // Pintu terbuka selama 5 detik
-
   digitalWrite(RELAY_PIN, LOW);
-  moveServo(SERVO_LOCKED_POS); // Putar Servo ke Posisi Terkunci (0 derajat)
 
   displayMessage("PINTU TERTUTUP", "Silakan Tap/PIN");
 }
@@ -570,7 +570,7 @@ void loop() {
     }
   }
 
-  // 2. Cek tombol keluar dari dalam (tanpa verifikasi server - normal solenoid + servo)
+  // 2. Cek tombol keluar dari dalam (tanpa verifikasi server - normal solenoid saja)
   // Cooldown 6 detik agar tidak trigger ulang setelah door open 5 detik
   if (digitalRead(BTN_KELUAR_PIN) == LOW && millis() - lastBtnKeluar > 6000) {
     delay(50); // Debounce singkat
@@ -578,15 +578,9 @@ void loop() {
       lastBtnKeluar = millis();
       displayMessage("KELUAR", "Pintu Terbuka...");
       feedbackSukses();
-      
       digitalWrite(RELAY_PIN, HIGH);
-      moveServo(SERVO_UNLOCKED_POS); // Putar Servo ke Posisi Terbuka (90 derajat)
-      
       delay(5000);
-      
       digitalWrite(RELAY_PIN, LOW);
-      moveServo(SERVO_LOCKED_POS); // Putar Servo ke Posisi Terkunci (0 derajat)
-      
       displayMessage("SYSTEM ONLINE", "Silakan Tap/PIN");
     }
   }
